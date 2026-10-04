@@ -230,4 +230,31 @@ def test_statements_turned_on_later_and_kept_apart_from_alerts(db, monkeypatch):
     with db.session_scope() as s:
         assert s.scalar(select(func.count(RawEmail.id))) == 1  # the statement never became an "unparsed alert"
         assert s.scalar(select(func.count(BankStatement.id))) == 1
+
+    # statements are checked once a day (FRAUDALERT_STATEMENT_SYNC_HOURS), not on every 5-minute alert sync
+    queries.clear()
+    pipeline.sync_inbox()
+    assert len(queries) == 1 and "NOT FROM" in queries[0]  # alerts only
+    queries.clear()
+    pipeline.sync_inbox(statements_now=True)  # the Statements page's "Check now"
+    assert len(queries) == 2
+    from fraudalert.models import SyncState
+    with db.session_scope() as s:
+        s.get(SyncState, "last_statement_sync").value = (now - timedelta(hours=25)).isoformat()
+    queries.clear()
+    pipeline.sync_inbox()
+    assert len(queries) == 2  # a day later: due again
     get_settings.cache_clear()
+
+
+def test_check_statements_now_button(db, monkeypatch):
+    calls = []
+    monkeypatch.setattr(pipeline, "sync_inbox", lambda settings=None, statements_now=False: calls.append(statements_now))
+    monkeypatch.setenv("FRAUDALERT_STATEMENT_SENDER_FILTER", "estadodecuenta@bank.example")
+    get_settings.cache_clear()
+    client = TestClient(create_app(init=False))
+    page = client.get("/statements").text
+    assert "checked every 24 hours" in page and "not checked yet" in page and "Check now" in page
+    get_settings.cache_clear()
+    r = client.post("/statements/check", follow_redirects=False)
+    assert r.status_code == 303 and "Checking" in r.headers["location"] and calls == [True]

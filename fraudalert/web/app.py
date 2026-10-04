@@ -452,8 +452,14 @@ def create_app(init: bool = True) -> FastAPI:
     @app.get("/statements")
     def statements_page(request: Request):
         settings = get_settings()
+        with session_scope() as s:
+            last = s.get(SyncState, "last_statement_sync")
+            last_check = datetime.fromisoformat(last.value) if last else None
         return templates.TemplateResponse(request, "statements.html", {
-            "senders": settings.statement_sender_filter, "subjects": settings.statement_subject_filter})
+            "senders": settings.statement_sender_filter, "subjects": settings.statement_subject_filter,
+            "every": settings.statement_sync_hours,
+            "last_check": _local(last_check) if last_check else None,
+            "next_check": _local(last_check + timedelta(hours=settings.statement_sync_hours)) if last_check else None})
 
     @app.get("/api/statements")
     def api_statements():
@@ -488,6 +494,12 @@ def create_app(init: bool = True) -> FastAPI:
                             error="; ".join(problems))
         return redirect("/statements", msg=("Imported " + "; ".join(done) + ".") if done else None,
                         error=None if done else "choose one or more statement PDFs")
+
+    @app.post("/statements/check")
+    def check_statements(background: BackgroundTasks):
+        """Look for new statement emails now instead of waiting for the daily check."""
+        background.add_task(pipeline.sync_inbox, None, True)
+        return redirect("/statements", msg="Checking the inbox for statements in the background — refresh in a moment.")
 
     @app.post("/statements/{statement_id}/delete")
     def delete_statement(statement_id: int):

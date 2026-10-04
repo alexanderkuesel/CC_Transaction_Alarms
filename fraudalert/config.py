@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     statement_sender_filter: str = ""
     statement_subject_filter: str = ""
     statement_password: str = ""
+    statement_sync_hours: int = 24  # statements arrive monthly: check for them at most this often
 
     # Outgoing mail for the daily report. Blank user/password = reuse the IMAP login (works for Gmail
     # app passwords). Port 587 = STARTTLS, 465 = SSL.

@@ -13,8 +13,12 @@
 
   <div class="card stm-source">
     {% if senders %}
-      <p style="margin:0">Statements are read from <b>{{ senders }}</b>{% if subjects %} (subjects containing <i>{{ subjects }}</i>){% endif %}
-        on every inbox sync. Older ones: <code>fraudalert backfill --since 3y</code>.</p>
+      <div class="stm-check">
+        <p style="margin:0">Statements are read from <b>{{ senders }}</b>{% if subjects %} (subjects containing <i>{{ subjects }}</i>){% endif %},
+          checked every {{ every }} hours{% if last_check %} · last checked {{ last_check }}, next around {{ next_check }}{% else %} · not checked yet{% endif %}.
+          Older ones: <code>fraudalert backfill --since 3y</code>.</p>
+        <form method="post" action="/statements/check"><button class="btn">Check now</button></form>
+      </div>
     {% else %}
       <p style="margin:0">To read statements from your inbox, set <code>FRAUDALERT_STATEMENT_SENDER_FILTER</code> in <code>.env</code>
         (for BAC: <code>estadodecuenta@baccredomatic.cr</code>) and restart. You can also import PDFs here.</p>

@@ -267,7 +267,7 @@ def _set_state(session: Session, key: str, value: str) -> None:
         session.add(SyncState(key=key, value=value))
 
 
-def sync_inbox(settings: Settings | None = None) -> SyncResult:
+def sync_inbox(settings: Settings | None = None, statements_now: bool = False) -> SyncResult:
     """Pull new bank emails over IMAP and process them. Safe to call repeatedly and concurrently."""
     settings = settings or get_settings()
     result = SyncResult()
@@ -281,14 +281,14 @@ def sync_inbox(settings: Settings | None = None) -> SyncResult:
             if not acquired:
                 result.errors.append("a sync is already running in another process (e.g. the worker)")
                 return result
-            _sync(settings, result)
+            _sync(settings, result, statements_now)
     finally:
         _sync_lock.release()
     log.info("sync: %s", result)
     return result
 
 
-def _sync(settings: Settings, result: SyncResult) -> None:
+def _sync(settings: Settings, result: SyncResult, statements_now: bool = False) -> None:
     from fraudalert.ingest.imap_client import fetch_messages
 
     try:
@@ -319,11 +319,15 @@ def _sync(settings: Settings, result: SyncResult) -> None:
         if settings.statement_senders:
             # Statements keep their own position, so turning them on later still finds the last
             # FRAUDALERT_LOOKBACK_DAYS of statements rather than only mail since the last alert sync.
+            # They arrive monthly, so the mailbox is checked for them every FRAUDALERT_STATEMENT_SYNC_HOURS
+            # (24 by default), not on every alert sync; `statements_now` checks right away.
             with session_scope() as session:
                 last_st = _get_state(session, "last_statement_sync")
+            due = (statements_now or not last_st or
+                   started - datetime.fromisoformat(last_st) >= timedelta(hours=settings.statement_sync_hours))
             st_since = (datetime.fromisoformat(last_st) - timedelta(days=2) if last_st
                         else started - timedelta(days=settings.lookback_days))
-            if _sync_statements(settings, st_since.date(), result):
+            if due and _sync_statements(settings, st_since.date(), result):
                 with session_scope() as session:
                     _set_state(session, "last_statement_sync", started.isoformat())
     except Exception as exc:  # noqa: BLE001
