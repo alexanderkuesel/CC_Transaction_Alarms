@@ -17,8 +17,10 @@ def _quote(s: str) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def build_search(since: date, senders: list[str]) -> str:
-    criteria = f"SINCE {since.strftime('%d-%b-%Y')}"
+def build_search(since: date, senders: list[str], exclude: list[str] = ()) -> str:
+    """IMAP SEARCH for mail since a date from any of `senders`, minus mail from `exclude` (e.g. the bank's
+    statement address, so transaction-alert syncs never download statements)."""
+    criteria = f"SINCE {since.strftime('%d-%b-%Y')}" + "".join(f" NOT FROM {_quote(x)}" for x in exclude)
     if not senders:
         return criteria
     # IMAP OR is binary prefix notation: OR FROM a OR FROM b FROM c
@@ -48,7 +50,7 @@ def fetch_messages(
         if status != "OK":
             raise RuntimeError(f"cannot open folder {settings.imap_folder!r}")
 
-        query = build_search(since, settings.senders)
+        query = build_search(since, settings.senders, settings.statement_senders)
         status, data = conn.uid("SEARCH", None, query)
         if status != "OK":
             raise RuntimeError(f"IMAP search failed: {data!r}")

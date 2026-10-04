@@ -159,3 +159,75 @@ def test_statements_pages_upload_and_delete(db):
     with db.session_scope() as s:
         assert s.scalar(select(func.count(BankStatement.id))) == 1
         assert s.scalar(select(func.count(StatementTotal.id))) == 6  # the card statement's totals went with it
+
+
+def test_statements_turned_on_later_and_kept_apart_from_alerts(db, monkeypatch):
+    """Alerts already sync; statements are switched on afterwards. The statement from 4 days ago is still
+    found (statements keep their own position), and alert searches never pick statement emails up, even
+    with a broad alert filter."""
+    import re
+    from datetime import timedelta
+    from email.message import EmailMessage
+    from email.utils import format_datetime
+
+    from fraudalert.ingest import imap_client
+    from fraudalert.models import RawEmail
+
+    from .conftest import make_eml
+
+    now = datetime.now(timezone.utc)
+    statement = EmailMessage()
+    statement["From"], statement["To"] = "BAC <estadodecuenta@bank.example>", "me@example.com"
+    statement["Subject"], statement["Message-ID"] = "Estado de cuenta Tarjeta de Crédito", "<stmt-old@bank.example>"
+    statement["Date"] = format_datetime(now - timedelta(days=4))
+    statement.set_content("Adjunto su estado de cuenta.")
+    statement.add_attachment(make_pdf(CARD_TEXT), maintype="application", subtype="pdf", filename="EstadoCta.pdf")
+    mailbox = [(now - timedelta(days=4), "estadodecuenta@bank.example", bytes(statement)),
+               (now - timedelta(days=1), "alerts@bank.example",
+                make_eml("Alert", "You spent $12.00 at DELI.", now - timedelta(days=1), sender="Bank <alerts@bank.example>"))]
+    queries = []
+
+    class Server:
+        def __init__(self, host, port): pass
+        def login(self, user, pw): pass
+        def select(self, folder, readonly=False): return "OK", [str(len(mailbox)).encode()]
+        def logout(self): pass
+
+        def uid(self, cmd, *args):
+            if cmd == "SEARCH":
+                q = args[1]; queries.append(q)
+                since = datetime.strptime(re.search(r"SINCE (\S+)", q).group(1), "%d-%b-%Y").date()
+                nots = re.findall(r'NOT FROM "([^"]+)"', q)
+                froms = re.findall(r'(?<!NOT )FROM "([^"]+)"', q)
+                hits = [str(i + 1).encode() for i, (when, sender, _) in enumerate(mailbox)
+                        if when.date() >= since and not any(n in sender for n in nots)
+                        and (not froms or any(f in sender for f in froms))]
+                return "OK", [b" ".join(hits)]
+            uid, what = args
+            raw = mailbox[int(uid) - 1][2]
+            if "HEADER.FIELDS" in what:
+                head = raw.split(b"\n\n", 1)[0]
+                keep = b"\r\n".join(l for l in head.splitlines() if l.lower().startswith((b"message-id", b"subject")))
+                return "OK", [(b"hdr", keep + b"\r\n")]
+            return "OK", [(b"body", raw)]
+
+    monkeypatch.setattr(imap_client.imaplib, "IMAP4_SSL", Server)
+    monkeypatch.setenv("FRAUDALERT_IMAP_USER", "me@example.com")
+    monkeypatch.setenv("FRAUDALERT_IMAP_PASSWORD", "app-pw")
+    monkeypatch.setenv("FRAUDALERT_SENDER_FILTER", "alerts@bank.example")
+    get_settings.cache_clear()
+    r = pipeline.sync_inbox()  # statements not configured yet
+    assert (r.parsed, r.statements) == (1, 0)
+
+    monkeypatch.setenv("FRAUDALERT_SENDER_FILTER", "")  # a broad alert filter: everything in the folder
+    monkeypatch.setenv("FRAUDALERT_STATEMENT_SENDER_FILTER", "estadodecuenta@bank.example")
+    get_settings.cache_clear()
+    queries.clear()
+    r = pipeline.sync_inbox()
+    assert (r.statements, r.errors) == (1, [])  # 4 days old, beyond the alert sync's 2-day overlap
+    alert_query, statement_query = queries
+    assert 'NOT FROM "estadodecuenta@bank.example"' in alert_query and "NOT FROM" not in statement_query
+    with db.session_scope() as s:
+        assert s.scalar(select(func.count(RawEmail.id))) == 1  # the statement never became an "unparsed alert"
+        assert s.scalar(select(func.count(BankStatement.id))) == 1
+    get_settings.cache_clear()

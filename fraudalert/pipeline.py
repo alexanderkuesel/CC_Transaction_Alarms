@@ -314,9 +314,18 @@ def _sync(settings: Settings, result: SyncResult) -> None:
             except Exception as exc:  # noqa: BLE001
                 log.exception("failed to ingest %s", msg.message_id)
                 result.errors.append(f"{msg.message_id}: {exc}")
-        _sync_statements(settings, since.date(), result)
         with session_scope() as session:
             _set_state(session, "last_imap_sync", started.isoformat())
+        if settings.statement_senders:
+            # Statements keep their own position, so turning them on later still finds the last
+            # FRAUDALERT_LOOKBACK_DAYS of statements rather than only mail since the last alert sync.
+            with session_scope() as session:
+                last_st = _get_state(session, "last_statement_sync")
+            st_since = (datetime.fromisoformat(last_st) - timedelta(days=2) if last_st
+                        else started - timedelta(days=settings.lookback_days))
+            if _sync_statements(settings, st_since.date(), result):
+                with session_scope() as session:
+                    _set_state(session, "last_statement_sync", started.isoformat())
     except Exception as exc:  # noqa: BLE001
         log.exception("sync failed")
         result.errors.append(str(exc))
@@ -335,17 +344,20 @@ class BackfillResult(SyncResult):
                 + ("; anomaly model retrained" if self.retrained else ""))
 
 
-def _sync_statements(settings: Settings, since: date, result: SyncResult) -> None:
-    """Statement emails (PDF attachments) from FRAUDALERT_STATEMENT_SENDER_FILTER, when configured."""
+def _sync_statements(settings: Settings, since: date, result: SyncResult) -> bool:
+    """Statement emails (PDF attachments) from FRAUDALERT_STATEMENT_SENDER_FILTER, when configured.
+    False when the mailbox couldn't be read (a PDF that isn't a statement is reported, not a failure)."""
     if not settings.statement_senders:
-        return
+        return False
     from fraudalert.statements.store import sync_statements
 
     try:
         sync_statements(settings, since, result)
+        return True
     except Exception as exc:  # noqa: BLE001
         log.exception("statement sync failed")
         result.errors.append(f"statements: {exc}")
+        return False
 
 
 def backfill_inbox(since: date, folder: str | None = None, ack_older_than_days: int | None = 30,

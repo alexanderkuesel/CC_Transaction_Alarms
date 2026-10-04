@@ -221,3 +221,9 @@ def test_imap_check_explains_a_short_backfill(monkeypatch):
     r = imap_client.diagnose(settings.model_copy(update={"imap_folder": "[Gmail]/All Mail"}), date(2023, 1, 1))
     assert any("Can't open folder" in h for h in r["hints"])
     assert imap_client._sender_keyword(new) == "notificacionesbaccr"
+
+
+def test_build_search_can_exclude_senders():
+    d = date(2026, 9, 1)
+    assert build_search(d, ["alerts@bank"], ["statements@bank"]) == 'SINCE 01-Sep-2026 NOT FROM "statements@bank" FROM "alerts@bank"'
+    assert build_search(d, [], ["statements@bank"]) == 'SINCE 01-Sep-2026 NOT FROM "statements@bank"'

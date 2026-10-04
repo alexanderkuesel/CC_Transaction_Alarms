@@ -70,7 +70,8 @@ class Settings(BaseSettings):
     def for_statements(self) -> "Settings":
         """The same mailbox, searched for statement emails instead of transaction alerts."""
         return self.model_copy(update={"sender_filter": self.statement_sender_filter,
-                                       "subject_filter": self.statement_subject_filter})
+                                       "subject_filter": self.statement_subject_filter,
+                                       "statement_sender_filter": ""})  # nothing to exclude in this search
 
 
 @lru_cache
