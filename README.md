@@ -11,6 +11,8 @@ It reads those emails (read-only), stores every transaction in PostgreSQL, and t
 * **Spending trends**: every category and merchant as a trend you can chart by day, week or month, over
   years of history; budgets with near/over-limit warnings; fixed monthly expenses that never reach your
   card (rent, transfers); and actual-vs-expected comparisons for every month.
+* **Bank statements**: the totals from your monthly statement PDFs (money out, money in, balances), with each card's
+  billing compared against what your alert emails captured.
 * **Alarms**: charges that look like fraud (card tests, large or foreign purchases, anything the anomaly
   model finds unusual) are raised as prioritised alarms for you to review, plus an optional daily report
   email with what to quote when you call your bank.
@@ -151,6 +153,37 @@ Since every card transaction already lands here, the **Spending** page turns it 
   a price change, set *Until* on the old row and add a new one, so past months keep the old amount.
 * In keeping with ISA-101, everything is grey until a budget limit is reached. Transactions you
   acknowledged as **fraud** don't count as spending, and nor do zero-amount card tests.
+
+## Bank statements: billed vs captured
+
+Your bank's monthly statements (PDF) add the numbers alert emails can't give you: what each card was
+actually **billed**, what left each **account**, and the **balances**. Only the totals are kept, never the
+statement's line items.
+
+```bash
+# .env
+FRAUDALERT_STATEMENT_SENDER_FILTER=estadodecuenta@baccredomatic.cr
+FRAUDALERT_STATEMENT_SUBJECT_FILTER=        # optional, e.g. "Estado de cuenta"
+FRAUDALERT_STATEMENT_PASSWORD=              # if your bank encrypts the PDFs
+```
+
+* Every inbox sync (and `fraudalert backfill`) picks up statement emails from that sender and reads their PDF
+  attachments. Import files by hand on the **Statements** page or with `fraudalert import-statement *.pdf`.
+  The same file is never imported twice.
+* **Card statements**: for each card and currency, the period's purchases (net of refunds), payments
+  received, and the balance at the cut-off. The purchases are compared with what your **alert emails captured** for
+  the same card, currency and dates: *coverage* below 95% is flagged **LOW**, meaning some purchases never
+  produced an alert (worth checking your bank's alert threshold). The statement says which card each account
+  bills, so a card account ending 1111 is matched to the card ending 4321 that your alerts mention.
+* **Account statements**: for each account, money out (debits), money in (credits), and the opening and
+  closing balance. ✓ means the statement adds up (opening − out + in = closing), which also guards against
+  PDF text quirks. The asset and liability totals per currency are tracked too, and **Balances by month**
+  shows how they move.
+* The overview's **Latest statements** card shows the newest of each.
+
+Supported today: **BAC Credomatic** (Costa Rica), "Estado de cuenta Tarjeta de Crédito" and "Estado de cuenta de
+cuenta(s) bancaria(s)". Other banks plug in as a parser in `fraudalert/statements/` (`detect()` recognises the
+bank's layout from the PDF text, `parse()` returns the totals) and need no other changes.
 
 ## Alarms: fraud monitoring, SCADA style
 

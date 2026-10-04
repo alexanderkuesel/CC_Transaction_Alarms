@@ -121,6 +121,49 @@
           <span class="muted">Nothing unusual needs your attention.</span></p>
       {% endif %}
     </section>
+
+    <section class="card ov-full" aria-labelledby="ov-stmt-h">
+      <div class="card-head">
+        <h2 id="ov-stmt-h">Latest statements</h2>
+        <a href="/statements" class="muted-link">All statements →</a>
+      </div>
+      {% if stmt_card or stmt_account %}
+      <div class="stmt-grid">
+        {% if stmt_card %}
+        <div>
+          <h3 class="stmt-h">Cards · {{ stmt_card.period_end }} cut-off</h3>
+          <ul class="stmt-list">
+          {% for l in stmt_card.lines if l.kind == 'card' %}
+            <li>
+              <span class="al-main"><b>{{ l.label }} · {{ l.currency }}</b>
+                <span class="muted small">billed {{ '{:,.2f}'.format(l.debits or 0) }} · alerts captured {{ '{:,.2f}'.format(l.captured or 0) }}</span></span>
+              <span class="num">{% if l.coverage is not none %}{{ (l.coverage * 100)|round|int }}%{% else %}—{% endif %}
+                {% if l.coverage is not none and l.coverage < 0.95 %}<span class="lim-badge hi" title="Some purchases never produced an alert">LOW</span>{% endif %}</span>
+            </li>
+          {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+        {% if stmt_account %}
+        <div>
+          <h3 class="stmt-h">Accounts · {{ stmt_account.period_end }} cut-off</h3>
+          <ul class="stmt-list">
+          {% for l in stmt_account.lines %}
+            <li>
+              <span class="al-main"><b>{{ l.label }}{{ ' (total)' if l.kind != 'account' }} · {{ l.currency }}</b>
+                {% if l.kind == 'account' %}<span class="muted small">out {{ '{:,.2f}'.format(l.debits or 0) }} · in {{ '{:,.2f}'.format(l.credits or 0) }}</span>{% endif %}</span>
+              <span class="num">{{ '{:,.2f}'.format(l.closing or 0) }}</span>
+            </li>
+          {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+      </div>
+      {% else %}
+        <p class="muted" style="margin:.25rem 0 0">No bank statements yet. Set <code>FRAUDALERT_STATEMENT_SENDER_FILTER</code> to read them from
+          your inbox, or <a href="/statements">import PDFs</a>.</p>
+      {% endif %}
+    </section>
   </div>
   <div class="flash" id="ov-msg" hidden></div>
 </div>

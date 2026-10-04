@@ -28,6 +28,8 @@ def main(argv: list[str] | None = None) -> int:
     ic = sub.add_parser("imap-check", help="show what the mail server exposes (read-only), to debug a short backfill")
     ic.add_argument("--since", default="3y", help="date or years, as for backfill (default 3y)")
     ic.add_argument("--folder", help="folder to check instead of FRAUDALERT_IMAP_FOLDER")
+    st = sub.add_parser("import-statement", help="import bank statement PDFs (totals only)")
+    st.add_argument("paths", nargs="+", type=Path, help="PDF files or folders of them")
     i = sub.add_parser("import-eml", help="ingest saved .eml files")
     i.add_argument("paths", nargs="+", type=Path)
     r = sub.add_parser("reevaluate", help="re-score all transactions and re-apply current rules")
@@ -159,6 +161,25 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "import-eml":
         files = [p for path in args.paths for p in (sorted(path.glob("*.eml")) if path.is_dir() else [path])]
         print(pipeline.import_eml_files(files))
+    elif args.cmd == "import-statement":
+        from fraudalert.config import get_settings
+        from fraudalert.db import session_scope
+        from fraudalert.statements import StatementError
+        from fraudalert.statements.store import save_statement
+
+        files = [p for path in args.paths for p in (sorted(path.glob("*.pdf")) if path.is_dir() else [path])]
+        failed = 0
+        for f in files:
+            try:
+                with session_scope() as session:
+                    st, created = save_statement(session, f.read_bytes(), filename=f.name,
+                                                 password=get_settings().statement_password)
+                    print(f"{f.name}: {st.bank} {st.kind} statement for {st.month:%b %Y}"
+                          + ("" if created else " (already imported)"))
+            except StatementError as exc:
+                failed += 1
+                print(f"{f.name}: {exc}", file=sys.stderr)
+        return 1 if failed else 0
     elif args.cmd == "reevaluate":
         mode = "all" if args.reparse_all else "failed" if args.reparse else "none"
         print(pipeline.reevaluate_all(reparse=mode))

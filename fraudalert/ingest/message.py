@@ -3,7 +3,7 @@
 import email
 import email.policy
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from email.message import EmailMessage as StdEmailMessage
 from email.utils import parsedate_to_datetime
@@ -51,6 +51,7 @@ class EmailMessage:
     subject: str
     received_at: datetime | None
     body: str  # plain text (HTML is converted)
+    pdfs: list[tuple[str, bytes]] = field(default_factory=list)  # (filename, content) of PDF attachments
 
 
 def _body_text(msg: StdEmailMessage) -> str:
@@ -85,4 +86,16 @@ def parse_rfc822(raw: bytes) -> EmailMessage:
         subject=str(msg["Subject"] or ""),
         received_at=received_at,
         body=_body_text(msg),
+        pdfs=_pdf_attachments(msg),
     )
+
+
+def _pdf_attachments(msg: StdEmailMessage) -> list[tuple[str, bytes]]:
+    out = []
+    for part in msg.iter_attachments():
+        name = part.get_filename() or ""
+        if part.get_content_type() == "application/pdf" or name.lower().endswith(".pdf"):
+            data = part.get_payload(decode=True)
+            if data:
+                out.append((name or "statement.pdf", data))
+    return out

@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     sender_filter: str = ""
     subject_filter: str = ""
     lookback_days: int = 90
+    # Monthly bank statements (PDF attachments): who sends them, e.g. "estadodecuenta@baccredomatic.cr",
+    # optional subject keywords, and the password if your bank encrypts the PDFs. Empty sender = off.
+    statement_sender_filter: str = ""
+    statement_subject_filter: str = ""
+    statement_password: str = ""
 
     # Outgoing mail for the daily report. Blank user/password = reuse the IMAP login (works for Gmail
     # app passwords). Port 587 = STARTTLS, 465 = SSL.
@@ -57,6 +62,15 @@ class Settings(BaseSettings):
     @property
     def subjects(self) -> list[str]:
         return self._split(self.subject_filter)
+
+    @property
+    def statement_senders(self) -> list[str]:
+        return self._split(self.statement_sender_filter)
+
+    def for_statements(self) -> "Settings":
+        """The same mailbox, searched for statement emails instead of transaction alerts."""
+        return self.model_copy(update={"sender_filter": self.statement_sender_filter,
+                                       "subject_filter": self.statement_subject_filter})
 
 
 @lru_cache

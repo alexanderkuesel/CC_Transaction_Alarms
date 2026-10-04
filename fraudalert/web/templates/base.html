@@ -19,6 +19,7 @@
   <nav aria-label="Main">
     <a href="/" class="{{ 'active' if p == '/' }}">Overview</a>
     <a href="/spending" class="{{ 'active' if p.startswith('/spending') }}">Spending</a>
+    <a href="/statements" class="{{ 'active' if p.startswith('/statements') }}">Statements</a>
     <a href="/alarms" class="{{ 'active' if p.startswith('/alarms') }}">Alarms{% if b.total %}
       <span class="nav-count {{ 'p1 blink' if b.counts[1] else 'p2' if b.counts[2] else 'p3' }}"
             title="{{ b.total }} unacknowledged alarm{{ 's' if b.total != 1 }}">{{ b.total }}</span>{% endif %}</a>
