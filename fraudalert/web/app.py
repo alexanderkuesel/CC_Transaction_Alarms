@@ -197,7 +197,12 @@ def create_app(init: bool = True) -> FastAPI:
                         "reason": next((a.reason.split(":")[0] for a in sorted(t.alerts, key=lambda a: PRIORITY_RANK.get(a.severity, 3))), "")}
 
             last_sync = s.get(SyncState, "last_imap_sync")
+            from fraudalert.statements.store import overview as statements_overview
+
+            stmts = statements_overview(s, env)["statements"]
             context = {
+                "stmt_card": next((x for x in stmts if x["kind"] == "card"), None),
+                "stmt_account": next((x for x in stmts if x["kind"] == "account"), None),
                 "recent": [row(t) for t in recent], "alarms": [row(t) for t in unack],
                 "alarm_counts": unack_by_priority(s), "currency": env.home_currency,
                 "last_sync": _local(datetime.fromisoformat(last_sync.value)) if last_sync else None,
@@ -443,6 +448,57 @@ def create_app(init: bool = True) -> FastAPI:
                 return {"assigned": spending.assign(s, body.keys, body.category_id)}
         except LookupError as exc:
             raise HTTPException(404, str(exc)) from exc
+
+    @app.get("/statements")
+    def statements_page(request: Request):
+        settings = get_settings()
+        return templates.TemplateResponse(request, "statements.html", {
+            "senders": settings.statement_sender_filter, "subjects": settings.statement_subject_filter})
+
+    @app.get("/api/statements")
+    def api_statements():
+        from fraudalert.statements.store import overview
+
+        with session_scope() as s:
+            data = overview(s, pipeline.Env.load(s, get_settings()))
+            data["currency"] = get_settings().home_currency.upper()
+            return data
+
+    @app.post("/statements/upload")
+    async def upload_statement(request: Request):
+        """Import statement PDFs by hand (for months that never reached the inbox)."""
+        from fraudalert.statements import StatementError
+        from fraudalert.statements.store import save_statement
+
+        form = await request.form()
+        done, problems = [], []
+        for f in form.getlist("files"):
+            if not hasattr(f, "read"):
+                continue
+            data = await f.read()
+            try:
+                with session_scope() as s:
+                    st, created = save_statement(s, data, filename=f.filename,
+                                                 password=get_settings().statement_password)
+                    done.append(f"{st.kind} statement for {st.month:%b %Y}" + ("" if created else " (already imported)"))
+            except StatementError as exc:
+                problems.append(f"{f.filename}: {exc}")
+        if problems:
+            return redirect("/statements", msg=("Imported " + "; ".join(done) + ". ") if done else None,
+                            error="; ".join(problems))
+        return redirect("/statements", msg=("Imported " + "; ".join(done) + ".") if done else None,
+                        error=None if done else "choose one or more statement PDFs")
+
+    @app.post("/statements/{statement_id}/delete")
+    def delete_statement(statement_id: int):
+        from fraudalert.models import BankStatement
+
+        with session_scope() as s:
+            st = s.get(BankStatement, statement_id)
+            if st is None:
+                return redirect("/statements", error="no such statement")
+            s.delete(st)
+        return redirect("/statements", msg="Statement removed.")
 
     @app.get("/rules")
     def rules_page(request: Request):

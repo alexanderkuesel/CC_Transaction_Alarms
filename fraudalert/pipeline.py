@@ -37,10 +37,13 @@ class SyncResult:
     parsed: int = 0
     failed: int = 0
     flagged: int = 0
+    statements: int = 0  # bank statements stored (see fraudalert.statements)
     errors: list[str] = field(default_factory=list)
 
     def __str__(self) -> str:
         s = f"fetched {self.fetched}, parsed {self.parsed}, unparsed {self.failed}, flagged {self.flagged}"
+        if self.statements:
+            s += f", statements {self.statements}"
         return s + (f" — errors: {'; '.join(self.errors)}" if self.errors else "")
 
 
@@ -311,6 +314,7 @@ def _sync(settings: Settings, result: SyncResult) -> None:
             except Exception as exc:  # noqa: BLE001
                 log.exception("failed to ingest %s", msg.message_id)
                 result.errors.append(f"{msg.message_id}: {exc}")
+        _sync_statements(settings, since.date(), result)
         with session_scope() as session:
             _set_state(session, "last_imap_sync", started.isoformat())
     except Exception as exc:  # noqa: BLE001
@@ -329,6 +333,19 @@ class BackfillResult(SyncResult):
     def __str__(self) -> str:
         return (super().__str__() + f"; {self.acknowledged} historical alarms acknowledged as legit"
                 + ("; anomaly model retrained" if self.retrained else ""))
+
+
+def _sync_statements(settings: Settings, since: date, result: SyncResult) -> None:
+    """Statement emails (PDF attachments) from FRAUDALERT_STATEMENT_SENDER_FILTER, when configured."""
+    if not settings.statement_senders:
+        return
+    from fraudalert.statements.store import sync_statements
+
+    try:
+        sync_statements(settings, since, result)
+    except Exception as exc:  # noqa: BLE001
+        log.exception("statement sync failed")
+        result.errors.append(f"statements: {exc}")
 
 
 def backfill_inbox(since: date, folder: str | None = None, ack_older_than_days: int | None = 30,
@@ -381,6 +398,7 @@ def backfill_inbox(since: date, folder: str | None = None, ack_older_than_days: 
             except Exception as exc:  # noqa: BLE001
                 log.exception("backfill failed")
                 result.errors.append(str(exc))
+            _sync_statements(settings, since, result)
     finally:
         _sync_lock.release()
 

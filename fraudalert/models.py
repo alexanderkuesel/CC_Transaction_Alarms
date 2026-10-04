@@ -182,3 +182,46 @@ class ManualExpense(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     category: Mapped[Category | None] = relationship()
+
+
+class BankStatement(Base):
+    """A monthly bank statement, reduced to its totals (see fraudalert.statements). `sha256` of the PDF
+    makes re-imports idempotent; `message_id` remembers which email it came from."""
+
+    __tablename__ = "bank_statements"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sha256: Mapped[str] = mapped_column(String(64), unique=True)
+    message_id: Mapped[str | None] = mapped_column(String(512), index=True)
+    filename: Mapped[str | None] = mapped_column(String(255))
+    bank: Mapped[str] = mapped_column(String(64))
+    kind: Mapped[str] = mapped_column(String(16))  # "account" | "card"
+    month: Mapped[date] = mapped_column(Date, index=True)
+    period_start: Mapped[date | None] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    lines: Mapped[list["StatementTotal"]] = relationship(back_populates="statement", cascade="all, delete-orphan",
+                                                         order_by="StatementTotal.id")
+
+
+class StatementTotal(Base):
+    """One product (account or card) in one currency on a statement: money out, money in, balances."""
+
+    __tablename__ = "statement_totals"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    statement_id: Mapped[int] = mapped_column(ForeignKey("bank_statements.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))  # "account" | "card" | "assets" | "liabilities"
+    label: Mapped[str] = mapped_column(String(128))
+    last4: Mapped[str | None] = mapped_column(String(4))
+    cards: Mapped[list | None] = mapped_column(JSON)  # card last-4s whose purchases this line bills
+    currency: Mapped[str] = mapped_column(String(3))
+    opening: Mapped[Decimal | None] = mapped_column(Numeric(16, 2))
+    closing: Mapped[Decimal | None] = mapped_column(Numeric(16, 2))
+    debits: Mapped[Decimal | None] = mapped_column(Numeric(16, 2))
+    credits: Mapped[Decimal | None] = mapped_column(Numeric(16, 2))
+    verified: Mapped[bool | None] = mapped_column(Boolean)
+
+    statement: Mapped[BankStatement] = relationship(back_populates="lines")

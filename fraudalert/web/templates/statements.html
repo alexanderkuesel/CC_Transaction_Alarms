@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Statements{% endblock %}
+{% block content %}
+<div class="stm">
+  <div class="page-head">
+    <div>
+      <h1>Statements</h1>
+      <p class="muted">The totals from your monthly bank statements (PDF): money out, money in and balances. Card statements are
+        compared with the purchases your alert emails captured for the same card and dates, so you can see what the
+        alerts missed. Only totals are kept, never the statement's line items.</p>
+    </div>
+  </div>
+
+  <div class="card stm-source">
+    {% if senders %}
+      <p style="margin:0">Statements are read from <b>{{ senders }}</b>{% if subjects %} (subjects containing <i>{{ subjects }}</i>){% endif %}
+        on every inbox sync. Older ones: <code>fraudalert backfill --since 3y</code>.</p>
+    {% else %}
+      <p style="margin:0">To read statements from your inbox, set <code>FRAUDALERT_STATEMENT_SENDER_FILTER</code> in <code>.env</code>
+        (for BAC: <code>estadodecuenta@baccredomatic.cr</code>) and restart. You can also import PDFs here.</p>
+    {% endif %}
+    <form class="stm-upload" method="post" action="/statements/upload" enctype="multipart/form-data">
+      <label for="stm-files">Import statement PDFs</label>
+      <input id="stm-files" type="file" name="files" accept="application/pdf,.pdf" multiple required>
+      <button class="btn">Import</button>
+    </form>
+  </div>
+
+  <section class="card" aria-labelledby="stm-cards-h">
+    <div class="card-head"><h2 id="stm-cards-h">Cards: billed vs captured</h2></div>
+    <p class="muted chart-sub">Purchases on each card statement (net of refunds) against the transactions captured from alert emails
+      for the same card, currency and period. Under 95% means some purchases never produced an alert.</p>
+    <div class="table-wrap"><table id="stm-cards">
+      <thead><tr><th>Statement</th><th>Card</th><th>Period</th><th>Cur.</th><th style="text-align:right">Billed</th>
+        <th style="text-align:right">Captured</th><th>Coverage</th><th style="text-align:right">Not captured</th>
+        <th style="text-align:right">Balance at cut-off</th></tr></thead>
+      <tbody><tr><td colspan="9" class="empty">Loading…</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section class="card" aria-labelledby="stm-acc-h">
+    <div class="card-head"><h2 id="stm-acc-h">Accounts</h2></div>
+    <p class="muted chart-sub">Money out and in for each account in its latest statement. ✓ means the statement adds up: opening − out + in = closing.</p>
+    <div class="table-wrap"><table id="stm-accounts">
+      <thead><tr><th>Statement</th><th>Account</th><th>Cur.</th><th style="text-align:right">Opening</th>
+        <th style="text-align:right">Money out</th><th style="text-align:right">Money in</th>
+        <th style="text-align:right">Closing</th><th></th></tr></thead>
+      <tbody><tr><td colspan="8" class="empty">Loading…</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section class="card" aria-labelledby="stm-bal-h">
+    <div class="card-head"><h2 id="stm-bal-h">Balances by month</h2></div>
+    <p class="muted chart-sub">Closing balance per account, and total assets and liabilities, from each month's statement.</p>
+    <div class="table-wrap"><table id="stm-balances"><thead></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="card" aria-labelledby="stm-list-h">
+    <div class="card-head"><h2 id="stm-list-h">Imported statements</h2></div>
+    <div class="table-wrap"><table id="stm-list">
+      <thead><tr><th>Month</th><th>Type</th><th>Bank</th><th>Period</th><th>File</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </section>
+</div>
+<script src="{{ asset('charts.js') }}"></script>
+<script src="{{ asset('statements.js') }}"></script>
+{% endblock %}
