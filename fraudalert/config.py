@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     statement_sender_filter: str = ""
     statement_subject_filter: str = ""
     statement_password: str = ""
+    statement_sync_hours: int = 24  # statements arrive monthly: check for them at most this often
 
     # Outgoing mail for the daily report. Blank user/password = reuse the IMAP login (works for Gmail
     # app passwords). Port 587 = STARTTLS, 465 = SSL.
@@ -70,7 +71,8 @@ class Settings(BaseSettings):
     def for_statements(self) -> "Settings":
         """The same mailbox, searched for statement emails instead of transaction alerts."""
         return self.model_copy(update={"sender_filter": self.statement_sender_filter,
-                                       "subject_filter": self.statement_subject_filter})
+                                       "subject_filter": self.statement_subject_filter,
+                                       "statement_sender_filter": ""})  # nothing to exclude in this search
 
 
 @lru_cache

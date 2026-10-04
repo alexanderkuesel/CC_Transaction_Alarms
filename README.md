@@ -168,7 +168,13 @@ FRAUDALERT_STATEMENT_PASSWORD=              # if your bank encrypts the PDFs
 ```
 
 * Every inbox sync (and `fraudalert backfill`) picks up statement emails from that sender and reads their PDF
-  attachments. Import files by hand on the **Statements** page or with `fraudalert import-statement *.pdf`.
+  attachments. Statements and transaction alerts are searched separately: alert syncs exclude the statement
+  sender (`NOT FROM`), so statements never show up as unparsed alerts, even with a broad
+  `FRAUDALERT_SENDER_FILTER`. Statements also keep their own sync position: when you turn them on, the first
+  sync looks back `FRAUDALERT_LOOKBACK_DAYS` (90 by default), and `fraudalert backfill` goes further.
+* Statements arrive once or twice a month, so the inbox is checked for them **once every 24 hours**
+  (`FRAUDALERT_STATEMENT_SYNC_HOURS`), not on every alert sync. Expecting one? Press **Check now** on the
+  Statements page. Import files by hand on the **Statements** page or with `fraudalert import-statement *.pdf`.
   The same file is never imported twice.
 * **Card statements**: for each card and currency, the period's purchases (net of refunds), payments
   received, and the balance at the cut-off. The purchases are compared with what your **alert emails captured** for

@@ -267,7 +267,7 @@ def _set_state(session: Session, key: str, value: str) -> None:
         session.add(SyncState(key=key, value=value))
 
 
-def sync_inbox(settings: Settings | None = None) -> SyncResult:
+def sync_inbox(settings: Settings | None = None, statements_now: bool = False) -> SyncResult:
     """Pull new bank emails over IMAP and process them. Safe to call repeatedly and concurrently."""
     settings = settings or get_settings()
     result = SyncResult()
@@ -281,14 +281,14 @@ def sync_inbox(settings: Settings | None = None) -> SyncResult:
             if not acquired:
                 result.errors.append("a sync is already running in another process (e.g. the worker)")
                 return result
-            _sync(settings, result)
+            _sync(settings, result, statements_now)
     finally:
         _sync_lock.release()
     log.info("sync: %s", result)
     return result
 
 
-def _sync(settings: Settings, result: SyncResult) -> None:
+def _sync(settings: Settings, result: SyncResult, statements_now: bool = False) -> None:
     from fraudalert.ingest.imap_client import fetch_messages
 
     try:
@@ -314,9 +314,22 @@ def _sync(settings: Settings, result: SyncResult) -> None:
             except Exception as exc:  # noqa: BLE001
                 log.exception("failed to ingest %s", msg.message_id)
                 result.errors.append(f"{msg.message_id}: {exc}")
-        _sync_statements(settings, since.date(), result)
         with session_scope() as session:
             _set_state(session, "last_imap_sync", started.isoformat())
+        if settings.statement_senders:
+            # Statements keep their own position, so turning them on later still finds the last
+            # FRAUDALERT_LOOKBACK_DAYS of statements rather than only mail since the last alert sync.
+            # They arrive monthly, so the mailbox is checked for them every FRAUDALERT_STATEMENT_SYNC_HOURS
+            # (24 by default), not on every alert sync; `statements_now` checks right away.
+            with session_scope() as session:
+                last_st = _get_state(session, "last_statement_sync")
+            due = (statements_now or not last_st or
+                   started - datetime.fromisoformat(last_st) >= timedelta(hours=settings.statement_sync_hours))
+            st_since = (datetime.fromisoformat(last_st) - timedelta(days=2) if last_st
+                        else started - timedelta(days=settings.lookback_days))
+            if due and _sync_statements(settings, st_since.date(), result):
+                with session_scope() as session:
+                    _set_state(session, "last_statement_sync", started.isoformat())
     except Exception as exc:  # noqa: BLE001
         log.exception("sync failed")
         result.errors.append(str(exc))
@@ -335,17 +348,20 @@ class BackfillResult(SyncResult):
                 + ("; anomaly model retrained" if self.retrained else ""))
 
 
-def _sync_statements(settings: Settings, since: date, result: SyncResult) -> None:
-    """Statement emails (PDF attachments) from FRAUDALERT_STATEMENT_SENDER_FILTER, when configured."""
+def _sync_statements(settings: Settings, since: date, result: SyncResult) -> bool:
+    """Statement emails (PDF attachments) from FRAUDALERT_STATEMENT_SENDER_FILTER, when configured.
+    False when the mailbox couldn't be read (a PDF that isn't a statement is reported, not a failure)."""
     if not settings.statement_senders:
-        return
+        return False
     from fraudalert.statements.store import sync_statements
 
     try:
         sync_statements(settings, since, result)
+        return True
     except Exception as exc:  # noqa: BLE001
         log.exception("statement sync failed")
         result.errors.append(f"statements: {exc}")
+        return False
 
 
 def backfill_inbox(since: date, folder: str | None = None, ack_older_than_days: int | None = 30,
