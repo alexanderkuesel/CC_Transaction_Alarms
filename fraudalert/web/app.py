@@ -200,7 +200,10 @@ def create_app(init: bool = True) -> FastAPI:
             from fraudalert.statements.store import overview as statements_overview
 
             stmts = statements_overview(s, env)["statements"]
+            from fraudalert import savings
+
             context = {
+                "loop": savings.compute(s, env),
                 "stmt_card": next((x for x in stmts if x["kind"] == "card"), None),
                 "stmt_account": next((x for x in stmts if x["kind"] == "account"), None),
                 "recent": [row(t) for t in recent], "alarms": [row(t) for t in unack],
@@ -446,6 +449,80 @@ def create_app(init: bool = True) -> FastAPI:
         try:
             with session_scope() as s:
                 return {"assigned": spending.assign(s, body.keys, body.category_id)}
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.get("/savings")
+    def savings_page(request: Request):
+        return templates.TemplateResponse(request, "savings.html", {})
+
+    @app.get("/api/savings")
+    def api_savings():
+        from fraudalert import savings
+
+        with session_scope() as s:
+            env = pipeline.Env.load(s, get_settings())
+            data = savings.compute(s, env)
+            data["income_entries"] = savings.list_income(s, env)
+            return data
+
+    class GoalIn(BaseModel):
+        mode: str
+        amount: str | float | None = None
+        currency: str | None = None
+        percent: str | float | None = None
+
+    @app.put("/api/savings/goal")
+    def api_savings_goal(body: GoalIn):
+        from fraudalert import savings
+
+        try:
+            with session_scope() as s:
+                return savings.set_goal(s, pipeline.Env.load(s, get_settings()), body.model_dump())
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    class IncomeIn(BaseModel):
+        name: str | None = None
+        amount: str | float | None = None
+        currency: str | None = None
+        day_of_month: int | str | None = None
+        start_month: str | None = None
+        end_month: str | None = None
+        note: str | None = None
+
+    @app.post("/api/savings/income", status_code=201)
+    def api_create_income(body: IncomeIn):
+        from fraudalert import savings
+
+        try:
+            with session_scope() as s:
+                e = savings.create_income(s, pipeline.Env.load(s, get_settings()), body.model_dump(exclude_unset=True))
+                return {"id": e.id, "name": e.name}
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.patch("/api/savings/income/{income_id}")
+    def api_update_income(income_id: int, body: IncomeIn):
+        from fraudalert import savings
+
+        try:
+            with session_scope() as s:
+                e = savings.update_income(s, pipeline.Env.load(s, get_settings()), income_id,
+                                          body.model_dump(exclude_unset=True))
+                return {"id": e.id, "name": e.name}
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.delete("/api/savings/income/{income_id}", status_code=204)
+    def api_delete_income(income_id: int):
+        from fraudalert import savings
+
+        try:
+            with session_scope() as s:
+                savings.delete_income(s, income_id)
         except LookupError as exc:
             raise HTTPException(404, str(exc)) from exc
 

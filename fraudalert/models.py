@@ -225,3 +225,20 @@ class StatementTotal(Base):
     verified: Mapped[bool | None] = mapped_column(Boolean)
 
     statement: Mapped[BankStatement] = relationship(back_populates="lines")
+
+
+class RecurringIncome(Base):
+    """Income you expect every month (salary, rent received...): a known disturbance in the savings loop.
+    Booked on `day_of_month` (clamped to short months) from `start_month` through `end_month`."""
+
+    __tablename__ = "recurring_income"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(128))
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    currency: Mapped[str] = mapped_column(String(3))
+    day_of_month: Mapped[int] = mapped_column(Integer, default=1)
+    start_month: Mapped[date] = mapped_column(Date)
+    end_month: Mapped[date | None] = mapped_column(Date)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

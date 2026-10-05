@@ -466,3 +466,52 @@ tr.total-row td { font-weight: 600; background: var(--panel); }
 .stmt-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; align-items: center; padding: .45rem 0; border-top: 1px solid var(--border); }
 .stmt-list li:first-child { border-top: 0; }
 .stm-check { display: flex; gap: 1rem; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+
+/* ---------- Savings loop ---------- */
+.sav-top { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
+.sav-setup { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
+@media (max-width: 900px) { .sav-top, .sav-setup { grid-template-columns: minmax(0, 1fr); } }
+.sav .flash { position: fixed; right: 1rem; bottom: 1rem; z-index: 20; margin: 0; max-width: min(420px, calc(100vw - 2rem)); }
+.sav .flash[hidden], .sav [hidden] { display: none; }
+.faceplate { border-left: 4px solid var(--border); }
+.faceplate.fp-hi { border-left-color: var(--p2); }
+.faceplate.fp-hihi { border-left-color: var(--p1); }
+.fp-head { display: flex; align-items: center; gap: .6rem; margin-bottom: .5rem; }
+.fp-head h2 { margin: 0; font-size: 16px; }
+.fp-mode { font-size: 10px; font-weight: 700; letter-spacing: .06em; padding: 0 .35rem; border: 1px solid var(--border); border-radius: 2px; color: var(--muted); }
+.fp-status { margin-left: auto; font-size: 12px; font-weight: 800; letter-spacing: .05em; padding: .1rem .5rem; border-radius: 2px;
+  border: 1.5px solid var(--muted); color: var(--muted); }
+.fp-status.ok { color: var(--fg); border-color: var(--fg); }
+.fp-status.hi { background: var(--p2); color: var(--p2-fg); border-color: var(--p2); }
+.fp-status.hihi { background: var(--p1); color: var(--p1-fg); border-color: var(--p1); animation: alarm-flash 1s steps(1, end) infinite; }
+@media (prefers-reduced-motion: reduce) { .fp-status.hihi { animation: none; } }
+.fp-rows { margin: 0; display: grid; gap: .35rem; }
+.fp-rows > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1rem; align-items: baseline; padding: .3rem 0; border-top: 1px solid var(--border); }
+.fp-rows > div:first-child { border-top: 0; }
+.fp-rows dt { color: var(--muted); }
+.fp-rows dd { margin: 0; font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+.fp-rows dd small { font-size: 12px; font-weight: 400; }
+.fp-tag { display: inline-block; min-width: 2.6em; font-size: 10px; font-weight: 800; letter-spacing: .05em; color: var(--fg);
+  border: 1px solid var(--border); border-radius: 2px; text-align: center; margin-right: .35rem; }
+.fp-bar { position: relative; height: 10px; margin: .8rem 0 .4rem; background: #d3d5d8; border-radius: 2px; }
+.fp-fill { position: absolute; left: 0; top: 0; bottom: 0; background: #4b5560; border-radius: 2px; }
+.fp-hi .fp-fill { background: var(--p2); } .fp-hihi .fp-fill { background: var(--p1); }
+.fp-tick { position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--muted); }
+.fp-tick.sp { width: 2px; background: var(--fg); }
+@media (prefers-color-scheme: dark) { .fp-bar { background: #3a3d42; } .fp-fill { background: #b7bec6; } }
+.fp-note { margin: .3rem 0 0; }
+.ff-table td { padding: .4rem .2rem; border-bottom: 1px solid var(--border); }
+.ff-table tr.over td { color: var(--danger-text); }
+.goal-form { display: flex; flex-direction: column; gap: .45rem; align-items: flex-start; max-width: 100%; }
+.goal-form .check-inline { margin: 0; }
+.goal-row { display: flex; gap: .4rem; align-items: center; padding-left: 1.4rem; flex-wrap: wrap; max-width: 100%; }
+.goal-row input[name="amount"], .goal-row input[name="percent"] { width: 11em; max-width: 100%; }
+.goal-row input.fx-cur { width: 4.2em; }
+.goal-row.off { opacity: .45; }
+#inc-table input { width: 100%; min-width: 80px; }
+#inc-table input[name="name"] { min-width: 120px; }
+#inc-table input.fx-cur, #inc-table input.fx-day { min-width: 0; width: 4.2em; }
+#inc-table input[type="month"] { min-width: 128px; }
+#inc-table tfoot td { background: var(--panel); border-top: 2px solid var(--border); }
+.kpi-loop.loop-hi { border-left: 4px solid var(--p2); }
+.kpi-loop.loop-hihi { border-left: 4px solid var(--p1); }

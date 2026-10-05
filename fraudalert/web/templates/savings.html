@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Savings{% endblock %}
+{% block content %}
+<div class="sav ov">
+  <div class="page-head">
+    <div>
+      <h1>Savings</h1>
+      <p class="muted">Monthly saving as a control loop. <b>SP</b> is your savings target; <b>PV</b> is the savings this month is
+        heading for. Income and fixed expenses are known in advance and taken off up front (feedforward); card spending is
+        corrected by feedback against a plan. <b>OUT</b> is advice, since you're the one who acts: how much you can still spend
+        per day. HI when the projection is more than 15% short of the target, HIHI when you'd spend more than you earn.</p>
+    </div>
+  </div>
+
+  <div class="sav-top">
+    <section class="card faceplate" id="fp" aria-labelledby="fp-h">
+      <div class="fp-head">
+        <h2 id="fp-h">Savings loop</h2>
+        <span class="fp-mode" title="Advisory: the app recommends, you act">ADVISORY</span>
+        <span id="fp-status" class="fp-status"></span>
+      </div>
+      <dl class="fp-rows">
+        <div><dt><span class="fp-tag">SP</span> Target</dt><dd id="fp-sp">—</dd></div>
+        <div><dt><span class="fp-tag">PV</span> Projected savings</dt><dd id="fp-pv">—</dd></div>
+        <div><dt><span class="fp-tag">OUT</span> You can spend</dt><dd id="fp-out">—</dd></div>
+      </dl>
+      <div class="fp-bar" id="fp-bar" aria-hidden="true"><span class="fp-fill"></span><span class="fp-tick hi"></span><span class="fp-tick sp"></span></div>
+      <p class="muted small fp-note" id="fp-note"></p>
+    </section>
+
+    <section class="card" aria-labelledby="ff-h">
+      <div class="card-head"><h2 id="ff-h">This month's budget</h2></div>
+      <table class="ff-table" id="ff-table"><tbody></tbody></table>
+      <p class="muted small" id="ff-note"></p>
+    </section>
+  </div>
+
+  <section class="card" aria-labelledby="trend-h">
+    <div class="card-head"><h2 id="trend-h">Spending against plan</h2></div>
+    <p class="muted chart-sub" id="trend-sub"></p>
+    <ul class="chart-legend" aria-label="Legend">
+      <li><span class="key-line actual"></span>Actual</li>
+      <li><span class="key-line expected"></span>Plan (setpoint)</li>
+      <li id="key-fc"><span class="key-line forecast"></span>Forecast</li>
+    </ul>
+    <div class="chart" id="sav-chart" role="img" aria-label="Cumulative spending this month against the plan"></div>
+  </section>
+
+  <div class="sav-setup">
+    <section class="card" aria-labelledby="goal-h">
+      <div class="card-head"><h2 id="goal-h">Savings target (SP)</h2></div>
+      <form id="goal-form" class="goal-form">
+        <label class="check-inline"><input type="radio" name="mode" value="fixed"> A fixed amount each month</label>
+        <div class="goal-row" data-mode="fixed">
+          <input name="amount" inputmode="decimal" placeholder="e.g. 500000" aria-label="Amount">
+          <input name="currency" maxlength="3" class="fx-cur" aria-label="Currency">
+        </div>
+        <label class="check-inline"><input type="radio" name="mode" value="percent"> A percentage of the month's income</label>
+        <div class="goal-row" data-mode="percent">
+          <input name="percent" inputmode="decimal" placeholder="e.g. 20" aria-label="Percent of income"> %
+        </div>
+        <button class="btn">Save target</button>
+      </form>
+    </section>
+
+    <section class="card" aria-labelledby="inc-h">
+      <div class="card-head"><h2 id="inc-h">Income (known disturbance)</h2></div>
+      <p class="muted small">Money you expect each month, booked on its day. A change? Set <i>Until</i> on the old row and add a new one.</p>
+      <div class="table-wrap"><table id="inc-table">
+        <thead><tr><th>Name</th><th>Amount</th><th>Cur.</th><th>Day</th><th>From</th><th>Until</th><th></th></tr></thead>
+        <tbody></tbody>
+        <tfoot><tr class="inc-new">
+          <td><input name="name" placeholder="e.g. Salary" aria-label="New income name" maxlength="128"></td>
+          <td><input name="amount" placeholder="0.00" inputmode="decimal" aria-label="Amount"></td>
+          <td><input name="currency" maxlength="3" class="fx-cur" aria-label="Currency"></td>
+          <td><input name="day_of_month" type="number" min="1" max="31" value="1" class="fx-day" aria-label="Day of month"></td>
+          <td><input name="start_month" type="month" aria-label="From month"></td>
+          <td><input name="end_month" type="month" aria-label="Until month (optional)"></td>
+          <td><button type="button" class="btn btn-sm" id="inc-add">Add</button></td>
+        </tr></tfoot>
+      </table></div>
+    </section>
+  </div>
+  <div class="flash" id="sav-msg" hidden></div>
+</div>
+<script src="{{ asset('charts.js') }}"></script>
+<script src="{{ asset('savings.js') }}"></script>
+{% endblock %}
