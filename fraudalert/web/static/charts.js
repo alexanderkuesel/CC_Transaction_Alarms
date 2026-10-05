@@ -266,6 +266,6 @@
   window.FTA = {
     el, h, money, compact, monthName, dayLabel, longMonth, signed, pctText, pctOf, niceMax, api, tickLabel,
     STATUS, MIN_PACE_DAYS, showTip, hideTip, sparkline, gauge, statusBadge,
-    bars, runningTotal, runningTotalTable, history, historyTable,
+    bars, runningTotal, runningTotalTable, history, historyTable, frame, yAxis, limitLine,
   };
 })();

@@ -11,6 +11,8 @@ It reads those emails (read-only), stores every transaction in PostgreSQL, and t
 * **Spending trends**: every category and merchant as a trend you can chart by day, week or month, over
   years of history; budgets with near/over-limit warnings; fixed monthly expenses that never reach your
   card (rent, transfers); and actual-vs-expected comparisons for every month.
+* **Savings loop**: a monthly savings target (SP) against projected savings (PV), with income and fixed expenses as
+  known disturbances and a daily spending allowance as the output; HI/HIHI when you're heading for an overspend.
 * **Bank statements**: the totals from your monthly statement PDFs (money out, money in, balances), with each card's
   billing compared against what your alert emails captured.
 * **Alarms**: charges that look like fraud (card tests, large or foreign purchases, anything the anomaly
@@ -153,6 +155,30 @@ Since every card transaction already lands here, the **Spending** page turns it 
   a price change, set *Until* on the old row and add a new one, so past months keep the old amount.
 * In keeping with ISA-101, everything is grey until a budget limit is reached. Transactions you
   acknowledged as **fraud** don't count as spending, and nor do zero-amount card tests.
+
+## Savings: a control loop
+
+Monthly saving is treated as a control problem, the way a process loop would be on a SCADA screen:
+
+| Loop | Here |
+|---|---|
+| **SP** (setpoint) | your savings target for the month: a fixed amount, or a percentage of the month's income |
+| **PV** (process value) | projected savings at month end = income − projected spending |
+| **Known disturbances** (feedforward) | recurring **income** and **fixed expenses**, taken off up front: *to spend on cards = income − fixed − target* |
+| **Unknown disturbances** (feedback) | card spending, compared every day with a **plan**: fixed expenses on their days plus the card budget spread like your usual month |
+| **OUT** (output) | advice, since you're the final control element: **how much you can still spend per day** this month |
+| **D** (rate) | last week's card spending against the plan; a warning when spending speeds up, not part of the output |
+| **Alarms** | **HI** when projected savings are more than 15% short of the target, **HIHI** when you'd spend more than you earn, with a deadband so they don't chatter |
+
+There's no integral term on purpose: a missed month doesn't raise next month's target.
+
+* Set it up on the **Savings** page: choose the target (fixed or %) and enter your recurring income (amount,
+  currency, day of the month, from/until). Fixed expenses come from **Spending → Fixed expenses**.
+* **Measurement correction**: alerts miss some purchases. If your latest card statement shows they captured
+  less than 98% of what was billed, card spending is scaled up accordingly (at most ×2), the way a plant corrects an
+  online analyzer against its last lab sample.
+* The **faceplate** shows SP, PV and OUT with the status. The trend shows actual spending against the plan, with
+  the forecast and the HI/HIHI limits. The overview's first tile is the projected savings and today's allowance.
 
 ## Bank statements: billed vs captured
 

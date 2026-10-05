@@ -456,6 +456,22 @@ class _Pen:
         }
 
 
+def month_inputs(session: Session, env, now: datetime | None = None) -> dict:
+    """This month's spending, split for the savings controller (fraudalert.savings): card spending per day,
+    fixed expenses per day (the whole month, including days still to come), the shape of your usual month
+    (cumulative card spend of the previous complete months; None without history) and the month-end forecast."""
+    now = _utc(now or datetime.now(timezone.utc)).astimezone(env.tz)
+    month = _month_start(now.date())
+    start = datetime.combine(_add_months(month, -EXPECTED_MONTHS), datetime.min.time(), tzinfo=env.tz)
+    rows = spends(session, env, start, _utc(now) + timedelta(seconds=1))
+    pen = _Pen(env, rows, session.scalars(select(ManualExpense)).all(), _first_full_month(session, env))
+    usual, basis = pen.expected_variable(month)
+    return {"month": month, "days": _days_in(month), "today": now.day,
+            "card_daily": pen.daily(month, variable_only=True), "fixed_daily": pen.fixed_daily(month),
+            "usual_card": usual, "basis": [m.isoformat()[:7] for m in basis],
+            "projected_total": pen.view(month, now.date(), None)["projected"]}
+
+
 def _status(value: float, budget: float | None) -> str:
     if not budget:
         return "none"

@@ -19,6 +19,17 @@
   {% endif %}
 
   <section class="kpis ov-kpis" id="ov-kpis" aria-label="This month at a glance">
+    <a class="kpi kpi-link kpi-loop {{ 'loop-' ~ loop.status }}" href="/savings">
+      <span>Savings this month</span>
+      {% if loop.status == 'setup' %}
+        <b>—</b><small>set a target and your income</small>
+      {% else %}
+        <b>{{ '{:,.0f}'.format(loop.projected_savings) if loop.projected_savings is not none else '—' }}
+          {% if loop.status in ('hi', 'hihi') %}<span class="lim-badge {{ loop.status }}">{{ loop.status|upper }}</span>{% endif %}</b>
+        <small>{% if loop.projected_savings is not none %}projected · target {{ '{:,.0f}'.format(loop.target) }}{% else %}projection from day 7{% endif %}
+          · {{ '{:,.0f}'.format(loop.allowance) }}/day left</small>
+      {% endif %}
+    </a>
     <a class="kpi kpi-link kpi-alarms {{ ('has-alarms top-p' ~ (1 if alarm_counts[1] else 2 if alarm_counts[2] else 3)) if alarm_counts.values()|sum }}" href="/alarms?view=unack">
       <span>Alarms to review</span>
       {% set total = alarm_counts.values()|sum %}
