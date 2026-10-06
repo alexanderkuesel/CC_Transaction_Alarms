@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Expenses{% endblock %}
+{% block content %}
+<div class="exp">
+  <div class="page-head">
+    <div>
+      <h1>Expenses</h1>
+      <p class="muted">Every expense as a raw row: card purchases from your alert emails and the fixed expenses booked each month.
+        Changing a row's category moves that merchant (all its purchases), and future purchases follow it.</p>
+    </div>
+    <a class="btn" id="exp-csv" href="/expenses.csv">Download CSV</a>
+  </div>
+
+  <form class="card exp-filters" id="exp-filters" aria-label="Filters">
+    <div class="ef">
+      <label for="ef-period">Period</label>
+      <select id="ef-period" name="period">
+        <option value="this">This month</option><option value="last">Last month</option>
+        <option value="90">Last 90 days</option><option value="year">This year</option>
+        <option value="12m">Last 12 months</option><option value="all">Everything</option>
+        <option value="custom">Custom…</option>
+      </select>
+    </div>
+    <div class="ef ef-custom"><label for="ef-from">From</label><input id="ef-from" name="from" type="date"></div>
+    <div class="ef ef-custom"><label for="ef-to">To</label><input id="ef-to" name="to" type="date"></div>
+    <div class="ef">
+      <label for="ef-cat">Category</label>
+      <select id="ef-cat" name="category"><option value="">All</option>
+        {% for id, name in categories %}<option value="{{ id }}">{{ name }}</option>{% endfor %}
+        <option value="uncategorized">Uncategorized</option></select>
+    </div>
+    <div class="ef">
+      <label for="ef-card">Card</label>
+      <select id="ef-card" name="card"><option value="">All</option>
+        {% for c in cards %}<option value="{{ c }}">…{{ c }}</option>{% endfor %}</select>
+    </div>
+    <div class="ef">
+      <label for="ef-source">Source</label>
+      <select id="ef-source" name="source"><option value="all">All</option><option value="card">Card purchases</option>
+        <option value="fixed">Fixed expenses</option></select>
+    </div>
+    <div class="ef ef-grow"><label for="ef-q">Search</label><input id="ef-q" name="q" type="search" placeholder="Merchant or note"></div>
+    <div class="ef"><label for="ef-min">Min</label><input id="ef-min" name="min" inputmode="decimal" class="ef-num"></div>
+    <div class="ef"><label for="ef-max">Max</label><input id="ef-max" name="max" inputmode="decimal" class="ef-num"></div>
+  </form>
+
+  <p class="exp-total" id="exp-total" aria-live="polite"></p>
+
+  <div class="table-wrap"><table id="exp-table" class="exp-table">
+    <thead><tr>
+      <th><button type="button" class="sort" data-sort="when">Date</button></th>
+      <th><button type="button" class="sort" data-sort="merchant">Merchant</button></th>
+      <th><button type="button" class="sort" data-sort="category">Category</button></th>
+      <th style="text-align:right"><button type="button" class="sort" data-sort="amount">Amount</button></th>
+      <th style="text-align:right">In <span data-bind="currency"></span></th>
+      <th>Card</th><th>Source</th><th>Status</th>
+    </tr></thead>
+    <tbody><tr><td colspan="8" class="empty">Loading…</td></tr></tbody>
+  </table></div>
+  <div class="pager" id="exp-pager"></div>
+  <div class="flash" id="exp-msg" hidden></div>
+</div>
+<script src="{{ asset('charts.js') }}"></script>
+<script src="{{ asset('expenses.js') }}"></script>
+{% endblock %}

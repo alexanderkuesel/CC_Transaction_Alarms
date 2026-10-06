@@ -120,6 +120,7 @@
       name.append(h("span", label));
       if (d.assigned_by === "user") name.append(h("span", "you", "tb-you"));
       if (d.assigned_by === "manual") name.append(h("span", "fixed", "tb-you"));
+      if (d.assigned_by === "learned") name.append(h("span", "learned", "tb-you"));
       const val = h("span", `${money(d.mtd, 0)}`, "tb-val");
       const right = h("span", null, "tb-right");
       if (level === 0 && pen.type === "device") { right.append(gauge(d)); const b = statusBadge(d.status); if (b) right.append(b); }
@@ -212,8 +213,9 @@
     select.value = selected == null ? "" : String(selected);
   }
   async function assign(keys, categoryId) {
-    await api("/api/spending/assign", { method: "POST", body: JSON.stringify({ keys, category_id: categoryId === "" ? null : Number(categoryId) }) });
+    const moved = await window.FTA.assignCategory(keys, categoryId);
     await loadOverview(); await loadSeries();
+    return moved;
   }
 
   function renderManage() {
@@ -264,10 +266,12 @@
         sel.append(box);
         r.insertCell().textContent = t.name;
         const s = h("select"); s.setAttribute("aria-label", "Category for " + t.name); fillCategorySelect(s, d.id);
-        s.addEventListener("change", async () => { try { await assign([t.key], s.value); flash(`Moved ${t.name}.`); } catch (e) { flash(e.message, true); } });
+        s.addEventListener("change", async () => { try { const n = await assign([t.key], s.value); flash(n > 1 ? `Moved ${t.name} and ${n - 1} similar.` : `Moved ${t.name}.`); } catch (e) { flash(e.message, true); } });
         r.insertCell().append(s);
-        r.insertCell().append(h("span", t.assigned_by === "user" ? "you" : t.assigned_by === "manual" ? "fixed" : "auto",
-          t.assigned_by === "auto" ? "muted" : "tb-you"));
+        const by = { user: "you", manual: "fixed", learned: "learned", auto: "auto" }[t.assigned_by] || "auto";
+        const tagBy = h("span", by, t.assigned_by === "auto" ? "muted" : "tb-you");
+        if (t.assigned_by === "learned") tagBy.title = "Categorised like a similar merchant you assigned";
+        r.insertCell().append(tagBy);
         const m = r.insertCell(); m.className = "num"; m.textContent = money(t.mtd, 0);
         const six = r.insertCell(); six.className = "num"; six.textContent = money(t.spark.reduce((a, b) => a + b, 0), 0);
       }
@@ -310,7 +314,7 @@
   $("mtd-prev").addEventListener("click", () => shiftMonth(-1));
   $("mtd-next").addEventListener("click", () => shiftMonth(1));
   $("move-select").addEventListener("change", async ev => {
-    try { await assign([state.pen.key], ev.target.value); flash(`Moved ${$("pen-title").textContent}.`); } catch (e) { flash(e.message, true); }
+    try { const n = await assign([state.pen.key], ev.target.value); flash(n > 1 ? `Moved ${$("pen-title").textContent} and ${n - 1} similar.` : `Moved ${$("pen-title").textContent}.`); } catch (e) { flash(e.message, true); }
   });
   $("cat-add").addEventListener("submit", async ev => {
     ev.preventDefault();
