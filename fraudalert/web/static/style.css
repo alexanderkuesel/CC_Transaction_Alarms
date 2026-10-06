@@ -532,3 +532,8 @@ tr.row-excluded td { text-decoration: line-through; color: var(--muted); }
 tr.row-excluded td select { text-decoration: none; }
 .exp .flash { position: fixed; right: 1rem; bottom: 1rem; z-index: 20; margin: 0; max-width: min(420px, calc(100vw - 2rem)); }
 .exp .flash[hidden] { display: none; }
+
+/* OTP requests on the Alarms page: always priority 1 */
+.otp-panel.has-unack { border-left: 4px solid var(--p1); }
+.otp-panel h2 { margin: 0 0 .25rem; font-size: 16px; }
+.otp-panel .alarm-table { margin-top: .5rem; }

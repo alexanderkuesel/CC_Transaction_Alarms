@@ -35,7 +35,7 @@ class RawEmail(Base):
     subject: Mapped[str] = mapped_column(String(1024))
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     body: Mapped[str] = mapped_column(Text)
-    # parsed | failed | ignored
+    # parsed | failed | ignored | otp
     parse_status: Mapped[str] = mapped_column(String(16), default="failed", index=True)
     parse_error: Mapped[str | None] = mapped_column(Text)
     parser_name: Mapped[str | None] = mapped_column(String(64))
@@ -241,4 +241,26 @@ class RecurringIncome(Base):
     start_month: Mapped[date] = mapped_column(Date)
     end_month: Mapped[date | None] = mapped_column(Date)
     note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class OtpRequest(Base):
+    """A one-time-password email: the bank asking you to confirm a (usually online) purchase. One you didn't
+    ask for means someone has your card details, so each is a High alarm until acknowledged. Not a
+    transaction: nothing has been charged, and the purchase's own alert email follows if it goes through."""
+
+    __tablename__ = "otp_requests"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email_id: Mapped[int] = mapped_column(ForeignKey("raw_emails.id", ondelete="CASCADE"), unique=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    subject: Mapped[str] = mapped_column(String(1024), default="")
+    # What the email says the code is for, when it says (best effort: banks word these differently)
+    merchant: Mapped[str | None] = mapped_column(String(512))
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    currency: Mapped[str | None] = mapped_column(String(3))
+    card_last4: Mapped[str | None] = mapped_column(String(4))
+    label_fraud: Mapped[bool | None] = mapped_column(Boolean)  # None = unacknowledged, False = it was me
+    comment: Mapped[str | None] = mapped_column(Text)
+    notified: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

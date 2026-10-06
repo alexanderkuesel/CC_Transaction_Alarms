@@ -4,8 +4,8 @@
 <div class="page-head">
   <div>
     <h1>Alarms <span class="passive-tag" title="Alarms are passive: nothing is blocked, reported or paid automatically.">Passive</span></h1>
-    <p class="muted">Charges that look like fraud: large or foreign purchases, card tests, and anything the anomaly model finds
-      unusual. Review each one and mark it legit or fraud. Alarm handling follows ISA-18.2 (priorities, acknowledgement, journal).</p>
+    <p class="muted">Charges that look like fraud: large or foreign purchases, card tests, one-time codes you didn't ask for,
+      and anything the anomaly model finds unusual. Review each one and mark it legit or fraud. Alarm handling follows ISA-18.2 (priorities, acknowledgement, journal).</p>
   </div>
 </div>
 {% set b = alarm_banner() %}
@@ -22,8 +22,47 @@
     <span class="banner-label">No unacknowledged alarms</span>
   {% endif %}
 </a>
+{% if otps %}
+{% set otp_unack = otps|selectattr('label_fraud', 'none')|list|length %}
+<section class="card otp-panel {{ 'has-unack' if otp_unack }}" aria-labelledby="otp-head">
+  <h2 id="otp-head">OTP requests{% if otp_unack %} · {{ otp_unack }} unacknowledged{% endif %}</h2>
+  <p class="muted small">Your bank sent a one-time code to confirm a purchase. If you didn't ask for one, someone is using your
+    card details: never share the code, and call your bank. Always priority 1.</p>
+  <div class="table-wrap"><table class="alarm-table">
+    <thead><tr><th>Pri</th><th>State</th><th title="Local time, {{ tz }}">Received</th><th>For</th><th>Card</th>
+      <th style="text-align:right">Amount</th><th>Acknowledge</th></tr></thead>
+    <tbody>
+    {% for o in otps %}
+      {% set state = 'fraud' if o.label_fraud else ('legit' if o.label_fraud is false else 'unack') %}
+      <tr class="row-{{ state }} pri-row-1">
+        <td><span class="pri pri-1 {{ 'blink' if state == 'unack' }}" title="Priority 1 · {{ PRIORITY_NAME[1] }}">1</span></td>
+        <td class="state">
+          {% if state == 'unack' %}<span class="state-tag unack">UNACK</span>
+          {% elif state == 'fraud' %}<span class="badge badge-fraud">✗ NOT ME</span>
+          {% else %}<span class="badge badge-legit">✓ MINE</span>{% endif %}
+        </td>
+        <td class="nowrap mono">{{ o.received_at | local }}</td>
+        <td>{{ o.merchant or o.subject }}{% if o.comment %}<div class="muted small">{{ o.comment }}</div>{% endif %}</td>
+        <td class="nowrap mono muted">{{ ('…' ~ o.card_last4) if o.card_last4 else '' }}</td>
+        <td class="num mono">{{ ('{:,.2f} '.format(o.amount) ~ o.currency) if o.amount is not none else '—' }}</td>
+        <td class="nowrap">
+          <form class="inline" method="post" action="/otp/{{ o.id }}/label">
+          {% if state == 'unack' %}
+            <button class="btn btn-sm" name="label" value="legit" title="Acknowledge: I asked for this code">Ack · Mine</button>
+            <button class="btn btn-sm btn-fraud" name="label" value="fraud" title="Acknowledge: I didn't ask for this code">Ack · Not me</button>
+          {% else %}
+            <button class="link" name="label" value="">undo</button>
+          {% endif %}
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endif %}
 <div class="kpis">
-  <div class="kpi"><span>Unacknowledged</span><b>{{ counts.unack }}</b></div>
+  <div class="kpi"><span>Unacknowledged</span><b>{{ b.total }}</b></div>
   <div class="kpi" title="Flagged transactions per day over the last 7 days">
     <span>Alarm rate (7 days)</span><b>{{ kpi.per_day_7d }}<small>/day</small></b></div>
   <div class="kpi kpi-mix" title="Share of alarms by priority over the last 30 days vs ISA-18.2 guidance (~5% High, 15% Medium, 80% Low)">

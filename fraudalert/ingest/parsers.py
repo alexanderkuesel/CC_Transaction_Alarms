@@ -351,3 +351,25 @@ def parse_email(msg: EmailMessage, home_currency: str) -> tuple[ParsedTransactio
         except ParseError as exc:
             errors.append(f"{parser.name}: {exc}")
     raise ParseError("; ".join(errors) or "no parser matched")
+
+
+# ---- OTP requests -----------------------------------------------------------------------------------
+# What a one-time-code email says the code is for (see pipeline.record_otp). Best effort: none of it is
+# required, the alarm stands on the email alone.
+_OTP_CARD_RE = re.compile(r"(?:terminad[ao]\s+en|ending\s+(?:in|with)|[*xX•·]{2,})\s*(\d{4})\b", re.I)
+_OTP_MERCHANT_RE = re.compile(
+    r"\b(?:compra|transacci[oó]n|pago|purchase|transaction|payment)\s+(?:en|at|with|a)\s+"
+    r"(?P<m>[^\n,;]{2,80}?)\s+(?:por|de|con|for|of|on|using)\b", re.I)
+
+
+def otp_details(text: str, subject: str, home_currency: str) -> dict:
+    """{"merchant", "amount", "currency", "card_last4"} as far as the email says them (else None)."""
+    amount = _first_amount(text, home_currency)
+    card = _OTP_CARD_RE.search(text)
+    m = _OTP_MERCHANT_RE.search(text) or _OTP_MERCHANT_RE.search(subject)
+    return {
+        "merchant": _clean_merchant(m.group("m")) if m else (find_merchant(text, subject) or None),
+        "amount": amount[0] if amount else None,
+        "currency": amount[1] if amount else None,
+        "card_last4": card.group(1) if card else find_card(text),
+    }

@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     statement_subject_filter: str = ""
     statement_password: str = ""
     statement_sync_hours: int = 24  # statements arrive monthly: check for them at most this often
+    # One-time-password emails ("your verification code is ..."). An OTP you didn't ask for means someone is
+    # using your card details right now, so every OTP request raises a High (P1) alarm until you acknowledge
+    # it. Identify them by subject keywords and/or sender (both must match when both are set); senders listed
+    # here are fetched even if FRAUDALERT_SENDER_FILTER doesn't include them. Both empty = off.
+    otp_subject_filter: str = ""
+    otp_sender_filter: str = ""
 
     # Outgoing mail for the daily report. Blank user/password = reuse the IMAP login (works for Gmail
     # app passwords). Port 587 = STARTTLS, 465 = SSL.
@@ -68,11 +74,32 @@ class Settings(BaseSettings):
     def statement_senders(self) -> list[str]:
         return self._split(self.statement_sender_filter)
 
+    @property
+    def otp_subjects(self) -> list[str]:
+        return self._split(self.otp_subject_filter)
+
+    @property
+    def otp_senders(self) -> list[str]:
+        return self._split(self.otp_sender_filter)
+
+    @property
+    def otp_enabled(self) -> bool:
+        return bool(self.otp_subjects or self.otp_senders)
+
+    def is_otp(self, sender: str, subject: str) -> bool:
+        """Is this email an OTP request? Case-insensitive substring matches, like the other filters."""
+        if not self.otp_enabled:
+            return False
+        sender, subject = (sender or "").lower(), (subject or "").lower()
+        return ((not self.otp_senders or any(s.lower() in sender for s in self.otp_senders))
+                and (not self.otp_subjects or any(s.lower() in subject for s in self.otp_subjects)))
+
     def for_statements(self) -> "Settings":
         """The same mailbox, searched for statement emails instead of transaction alerts."""
         return self.model_copy(update={"sender_filter": self.statement_sender_filter,
                                        "subject_filter": self.statement_subject_filter,
-                                       "statement_sender_filter": ""})  # nothing to exclude in this search
+                                       "statement_sender_filter": "",
+                                       "otp_subject_filter": "", "otp_sender_filter": ""})  # nothing to exclude in this search
 
 
 @lru_cache

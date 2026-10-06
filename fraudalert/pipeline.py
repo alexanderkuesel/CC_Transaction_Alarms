@@ -18,9 +18,9 @@ from fraudalert import prefs
 from fraudalert.fx import Converter, parse_rates
 from fraudalert.db import SYNC_LOCK_KEY, session_scope, try_advisory_lock
 from fraudalert.ingest.message import EmailMessage, parse_rfc822
-from fraudalert.ingest.parsers import ParsedTransaction, ParseError, _fold, parse_email
-from fraudalert.models import Alert, RawEmail, Rule, SyncState, Transaction
-from fraudalert.notify import notify
+from fraudalert.ingest.parsers import ParsedTransaction, ParseError, _fold, otp_details, parse_email
+from fraudalert.models import Alert, OtpRequest, RawEmail, Rule, SyncState, Transaction
+from fraudalert.notify import notify, notify_otp
 from fraudalert.rules.engine import RuleSpec, describe, evaluate
 
 log = logging.getLogger(__name__)
@@ -38,10 +38,13 @@ class SyncResult:
     failed: int = 0
     flagged: int = 0
     statements: int = 0  # bank statements stored (see fraudalert.statements)
+    otp: int = 0  # new OTP requests (High alarms; see record_otp)
     errors: list[str] = field(default_factory=list)
 
     def __str__(self) -> str:
         s = f"fetched {self.fetched}, parsed {self.parsed}, unparsed {self.failed}, flagged {self.flagged}"
+        if self.otp:
+            s += f", OTP requests {self.otp}"
         if self.statements:
             s += f", statements {self.statements}"
         return s + (f" — errors: {'; '.join(self.errors)}" if self.errors else "")
@@ -218,6 +221,13 @@ def _parse_into_transaction(session, raw, settings, detector, rules, result) -> 
     """Parse a stored email into its transaction, creating it or updating it in place (so a
     re-parse keeps the transaction's id and your fraud/legit label)."""
     env = Env.load(session, settings)
+    otp = session.scalar(select(OtpRequest).where(OtpRequest.email_id == raw.id))
+    if settings.is_otp(raw.sender, raw.subject):
+        record_otp(session, raw, settings, result, otp)
+        return None
+    if otp is not None:  # was an OTP request under an earlier FRAUDALERT_OTP_* setting
+        session.delete(otp)
+        session.flush()
     msg = EmailMessage(raw.message_id, raw.sender, raw.subject, raw.received_at, raw.body)
     try:
         parsed, parser_name = parse_email(msg, settings.home_currency)
@@ -252,6 +262,39 @@ def _parse_into_transaction(session, raw, settings, detector, rules, result) -> 
                 for a in new_alerts:
                     a.notified = True
     return txn
+
+
+OTP_HISTORY_NOTE = "Historical: received before it was checked, acknowledged automatically"
+
+
+def record_otp(session: Session, raw: RawEmail, settings: Settings, result: SyncResult,
+               otp: OtpRequest | None = None) -> OtpRequest:
+    """Store an OTP-request email (FRAUDALERT_OTP_*) as a High alarm and notify, instead of parsing it as a
+    purchase. Whatever the email says about the purchase (merchant, amount, card) is kept when found.
+
+    Only a fresh request is notified and left unacknowledged: one already older than NOTIFY_MAX_AGE when
+    first seen (a backfill, or turning the setting on) is from the past and is acknowledged automatically,
+    so years of your own online purchases don't flood the alarm list."""
+    raw.parse_status, raw.parse_error, raw.parser_name = "otp", None, "otp"
+    if raw.transaction is not None:  # read as a purchase before OTP detection was configured
+        session.delete(raw.transaction)
+    is_new = otp is None
+    otp = otp or OtpRequest(email_id=raw.id)
+    otp.received_at = _as_utc(raw.received_at or datetime.now(timezone.utc))
+    otp.subject = raw.subject[:1024]
+    for key, value in otp_details(raw.body, raw.subject, settings.home_currency).items():
+        setattr(otp, key, value)
+    if is_new:
+        if datetime.now(timezone.utc) - otp.received_at > NOTIFY_MAX_AGE:
+            otp.label_fraud, otp.comment = False, OTP_HISTORY_NOTE
+        else:
+            session.add(otp)
+            session.flush()
+            otp.notified = notify_otp(settings, otp)
+            result.otp += 1
+    session.add(otp)
+    session.flush()
+    return otp
 
 
 def _get_state(session: Session, key: str) -> str | None:

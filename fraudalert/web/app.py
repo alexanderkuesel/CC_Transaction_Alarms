@@ -19,7 +19,7 @@ from sqlalchemy.orm import selectinload
 from fraudalert import pipeline, prefs
 from fraudalert.config import get_settings
 from fraudalert.db import init_db, session_scope
-from fraudalert.models import Alert, RawEmail, Rule, SyncState, Transaction
+from fraudalert.models import Alert, OtpRequest, RawEmail, Rule, SyncState, Transaction
 from fraudalert.web.filters import PRIORITIES, PRIORITY_RANK, STATES, VIEWS, Filters, txn_priority, txn_state
 from fraudalert.rules.engine import FIELDS, OPS, RuleError, RuleSpec, describe, validate_rule
 
@@ -107,6 +107,7 @@ def unack_by_priority(s) -> dict[int, int]:
     counts = {1: 0, 2: 0, 3: 0}
     for rank in best.values():
         counts[rank] += 1
+    counts[1] += s.scalar(select(func.count(OtpRequest.id)).where(OtpRequest.label_fraud.is_(None)))  # always High
     return counts
 
 
@@ -118,8 +119,10 @@ def alarm_kpis(s) -> dict:
         select(Alert.transaction_id, Alert.severity).join(Transaction).where(Transaction.occurred_at >= since)
     ):
         best[txn_id] = min(best.get(txn_id, 9), PRIORITY_RANK.get(severity, 3))
-    n = len(best)
-    mix = {p: round(100 * sum(1 for r in best.values() if r == p) / n) if n else 0 for p in (1, 2, 3)}
+    otps = s.scalar(select(func.count(OtpRequest.id)).where(OtpRequest.received_at >= since))
+    n = len(best) + otps
+    mix = {p: round(100 * (sum(1 for r in best.values() if r == p) + (otps if p == 1 else 0)) / n) if n else 0
+           for p in (1, 2, 3)}
     week = datetime.now(timezone.utc) - timedelta(days=7)
     last7 = s.scalar(select(func.count(Transaction.id)).where(
         Transaction.flagged.is_(True), Transaction.occurred_at >= week))
@@ -235,6 +238,11 @@ def create_app(init: bool = True) -> FastAPI:
             cards = sorted(c for c in s.scalars(select(Transaction.card_last4).distinct()) if c)
             last_sync = s.get(SyncState, "last_imap_sync")
             kpi = alarm_kpis(s)
+            # OTP requests: every unacknowledged one, plus the last 30 days of acknowledged ones
+            recent = datetime.now(timezone.utc) - timedelta(days=30)
+            otps = s.scalars(select(OtpRequest).where(
+                (OtpRequest.label_fraud.is_(None)) | (OtpRequest.received_at >= recent))
+                .order_by(OtpRequest.label_fraud.is_(None).desc(), OtpRequest.received_at.desc()).limit(50)).all()
         return templates.TemplateResponse(
             request,
             "transactions.html",
@@ -247,6 +255,7 @@ def create_app(init: bool = True) -> FastAPI:
                 "tz": settings.timezone,
                 "normal": env.normal_currencies,
                 "is_foreign": env.is_foreign,
+                "otps": otps, "otp_enabled": settings.otp_enabled,
             },
         )
 
@@ -280,6 +289,17 @@ def create_app(init: bool = True) -> FastAPI:
                 raise HTTPException(404)
             txn.label_fraud = value
         return RedirectResponse(request.headers.get("referer") or "/", status_code=303)
+
+    @app.post("/otp/{otp_id}/label")
+    async def label_otp(otp_id: int, request: Request):
+        form = await request.form()
+        value = {"fraud": True, "legit": False}.get(str(form.get("label")))
+        with session_scope() as s:
+            otp = s.get(OtpRequest, otp_id)
+            if not otp:
+                raise HTTPException(404)
+            otp.label_fraud = value
+        return RedirectResponse(request.headers.get("referer") or "/alarms", status_code=303)
 
     @app.post("/transactions/{txn_id}/comment")
     async def comment_transaction(txn_id: int, request: Request):

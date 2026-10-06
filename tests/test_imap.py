@@ -15,6 +15,7 @@ class FakeIMAP:
 
     mailbox: dict[bytes, bytes] = {}
     fetched_bodies: list[bytes] = []
+    queries: list[str] = []
 
     def __init__(self, host, port):
         pass
@@ -28,12 +29,13 @@ class FakeIMAP:
 
     def uid(self, cmd, *args):
         if cmd == "SEARCH":
+            FakeIMAP.queries.append(args[-1])
             return "OK", [b" ".join(self.mailbox)]
         uid, what = args
         raw = self.mailbox[uid]
         if "HEADER.FIELDS" in what:
             head = raw.split(b"\n\n", 1)[0]
-            keep = b"\r\n".join(l for l in head.splitlines() if l.lower().startswith((b"message-id", b"subject")))
+            keep = b"\r\n".join(l for l in head.splitlines() if l.lower().startswith((b"message-id", b"subject", b"from")))
             return "OK", [(b"hdr", keep + b"\r\n")]
         assert "PEEK" in what  # never mark mail as read
         self.fetched_bodies.append(uid)

@@ -266,6 +266,30 @@ Built-in alarms:
 * **Charge after a card test** (High): a real charge on the same card within 48 hours of a test-sized one.
 * **Large or foreign purchase** (Medium): over 100 in your home currency, made abroad, or in a currency
   you don't normally use.
+* **OTP request** (High, when configured): see below.
+
+### OTP requests
+
+When someone tries to buy online with your card, the bank usually emails a one-time code (OTP) to confirm
+the purchase. A code you didn't ask for is about the strongest fraud signal there is: the card details are in
+someone else's hands *right now*, before anything has been charged. Tell the app what those emails look like
+in `.env`:
+
+```bash
+# subject keywords and/or sender; both must match when both are set (comma separated, case-insensitive)
+FRAUDALERT_OTP_SUBJECT_FILTER=código de verificación,OTP
+FRAUDALERT_OTP_SENDER_FILTER=
+```
+
+Copy the wording from one of your bank's real OTP emails. Senders listed here are fetched even if they're not in
+`FRAUDALERT_SENDER_FILTER`, and OTP subjects pass `FRAUDALERT_SUBJECT_FILTER`. Then restart (`docker compose up -d`).
+
+Every matching email becomes a **priority 1** alarm with its own panel at the top of the **Alarms** page
+(**Ack · Mine** / **Ack · Not me**). It is also counted in the alarm banner, sent to the webhook, and listed in the daily
+report. It is not a transaction, so it never counts as spending; if the purchase goes through, its own alert
+email follows. The code itself is never forwarded. Run **Emails → Re-parse all emails** to pick up OTP emails
+already in the database. Requests more than 2 days old when first seen (a backfill, or OTP emails already stored
+when you turn this on) are recorded as acknowledged, so your own past online purchases don't flood the list.
 
 Existing installs receive new built-in alarms automatically on upgrade (once; if you delete one, it stays deleted).
 
@@ -389,7 +413,8 @@ labels and comments are kept.
 Set `FRAUDALERT_NOTIFY_WEBHOOK_URL` to get a POST for every new alarm. The message leads with the
 priority (`[HIGH] Transaction alarm: ...`). The payload has `text` (Slack/Mattermost), `content` (Discord),
 `priority`, and structured `transaction` fields. Transactions older
-than 2 days are not sent, so a historical backfill won't flood you.
+than 2 days are not sent, so a historical backfill won't flood you. OTP requests are sent as
+`[HIGH] OTP request: ...` with an `otp_request` object in place of `transaction`.
 
 ## Anomaly detection
 

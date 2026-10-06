@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session, selectinload
 from fraudalert.anomaly.explain import summary
 from fraudalert.config import Settings, get_settings
 from fraudalert.db import session_scope
-from fraudalert.models import Alert, SyncState, Transaction
+from fraudalert.models import Alert, OtpRequest, SyncState, Transaction
 
 log = logging.getLogger(__name__)
 
@@ -135,17 +135,22 @@ def build_report(session: Session, settings: Settings, since: datetime, until: d
         Transaction.label_fraud.is_(True), Transaction.occurred_at >= until - timedelta(days=30),
     ).order_by(Transaction.occurred_at.desc())).all()
 
+    otps = session.scalars(select(OtpRequest).where(OtpRequest.label_fraud.is_(None))
+                           .order_by(OtpRequest.received_at.desc())).all()
+
     spend = sum(env.fx.to_home(float(t.amount), t.currency) for t in period)
     new_alarms = {1: 0, 2: 0, 3: 0}
     for t in period:
         if t.flagged and (p := _priority(t)):
             new_alarms[p] += 1
     unack_by = {p: sum(1 for t in unack if _priority(t) == p) for p in (1, 2, 3)}
+    unack_by[1] += len(otps)  # OTP requests are always High
+    n_unack = len(unack) + len(otps)
     local_day = until.astimezone(tz)
 
-    if unack:
+    if n_unack:
         top = ", ".join(f"{n} {PRIORITY_LABEL[p].split()[1]}" for p, n in unack_by.items() if n)
-        subject = f"{APP_NAME} · {local_day:%b %d}: {len(unack)} unacknowledged ({top})"
+        subject = f"{APP_NAME} · {local_day:%b %d}: {n_unack} unacknowledged ({top})"
     else:
         subject = f"{APP_NAME} · {local_day:%b %d}: all clear"
 
@@ -162,13 +167,23 @@ def build_report(session: Session, settings: Settings, since: datetime, until: d
     def money(t):
         return f"{t.amount:,.2f} {t.currency}"
 
+    def when_otp(o):
+        return _utc(o.received_at).astimezone(tz).strftime("%Y-%m-%d %H:%M")
+
     # ---- plain text ----
     lines = [subject, "", f"Covering {since.astimezone(tz):%Y-%m-%d %H:%M} to {until.astimezone(tz):%Y-%m-%d %H:%M} "
              f"({settings.timezone}).",
              f"{len(period)} transaction(s), {spend:,.2f} {env.home_currency}. New alarms: "
              f"{new_alarms[1]} High, {new_alarms[2]} Medium, {new_alarms[3]} Low.", ""]
-    if unack:
-        lines += [f"NEEDS YOUR ATTENTION ({len(unack)} unacknowledged)", call, ""]
+    def otp_what(o):
+        return " ".join(x for x in (f"{o.amount:,.2f} {o.currency}" if o.amount is not None else "",
+                                    o.merchant or o.subject, f"card …{o.card_last4}" if o.card_last4 else "") if x)
+
+    if n_unack:
+        lines += [f"NEEDS YOUR ATTENTION ({n_unack} unacknowledged)", call, ""]
+        for o in otps[:MAX_ROWS]:
+            lines.append(f"  [{PRIORITY_LABEL[1]}] {when_otp(o)}  OTP request: {otp_what(o)}  "
+                         "(a one-time code you didn't ask for means someone has your card details)")
         for t in unack[:MAX_ROWS]:
             lines.append(f"  [{PRIORITY_LABEL[_priority(t) or 3]}] {when(t)}  {money(t)}  {t.merchant}  "
                          f"card …{t.card_last4 or '????'}  auth {t.auth_code or '-'}  ref {t.reference or '-'}  "
@@ -275,11 +290,18 @@ def build_report(session: Session, settings: Settings, since: datetime, until: d
         f'<div style="color:#5b5e63;font-size:12px">{e(since.astimezone(tz).strftime("%Y-%m-%d %H:%M"))} → '
         f'{e(until.astimezone(tz).strftime("%Y-%m-%d %H:%M"))} ({e(settings.timezone)})</div></div>',
     ]
-    if unack:
+    if n_unack:
+        otp_html = "".join(
+            f'<div style="border-left:4px solid {PRIORITY_COLOR[1]};background:#f4f4f5;padding:8px 12px;margin:0 0 8px">'
+            f'<div><b style="color:{PRIORITY_COLOR[1]}">{PRIORITY_LABEL[1]}</b> &nbsp;<b style="font-size:15px">OTP request</b>'
+            f' · {e(otp_what(o))}</div>'
+            f'<div style="color:#5b5e63;font-size:13px">{e(when_otp(o))} · a one-time code you didn\'t ask for means '
+            f'someone has your card details. Never share the code.</div></div>'
+            for o in otps[:MAX_ROWS])
         parts += [
-            f'<h3 style="margin:18px 16px 6px">Needs your attention · {len(unack)} unacknowledged</h3>',
+            f'<h3 style="margin:18px 16px 6px">Needs your attention · {n_unack} unacknowledged</h3>',
             f'<div style="margin:0 16px 8px;padding:10px 12px;border-left:4px solid #c62828;background:#f7e3e1">{call_html}</div>',
-            f'<div style="margin:0 16px">{blocks(unack)}</div>',
+            f'<div style="margin:0 16px">{otp_html}{blocks(unack)}</div>',
         ]
     else:
         parts.append('<p style="margin:18px 16px;font-size:15px"><b>All clear.</b> No unacknowledged alarms.</p>')
@@ -294,7 +316,7 @@ def build_report(session: Session, settings: Settings, since: datetime, until: d
                      f'style="background:#3a3d42;color:#fff;padding:8px 12px;text-decoration:none">Review alarms</a></p>')
     parts.append(f'<p style="margin:18px 16px;font-size:12px;color:#5b5e63">{e(APP_NAME)} is a passive monitor: it reads '
                  f'your bank\'s alert emails and never blocks cards, contacts your bank or moves money.</p></div>')
-    return Report(subject, text, "".join(parts), len(unack), len(period))
+    return Report(subject, text, "".join(parts), n_unack, len(period))
 
 
 # ---- sending --------------------------------------------------------------------------------------
