@@ -199,7 +199,7 @@ def test_spending_api(db):
     assert client.patch("/api/spending/categories/9999", json={"name": "x"}).status_code == 404
 
     key = merchant_key("MYSTERY SHOP")
-    assert client.post("/api/spending/assign", json={"keys": [key], "category_id": hid}).json() == {"assigned": 1}
+    assert client.post("/api/spending/assign", json={"keys": [key], "category_id": hid}).json() == {"assigned": 1, "similar": []}
     assert client.post("/api/spending/assign", json={"keys": [], "category_id": hid}).status_code == 422
     assert client.post("/api/spending/assign", json={"keys": [key], "category_id": 9999}).status_code == 404
     hob = device(client.get("/api/spending/overview").json(), "Hobbies")
@@ -353,3 +353,49 @@ def test_fixed_share_of_trend_points_and_budgeted_spend(db):
         assert (p["value"], p["fixed"], p["count"]) == (1440, 900, 2)  # rent isn't a card transaction
         t = spending.overview(s, env(s), now=NOW)["total"]
         assert (t["mtd"], t["budget"], t["budgeted_mtd"]) == (1440, 100, 40)
+
+
+def test_new_merchants_learn_from_your_choices(db):
+    with db.session_scope() as s:
+        spending.seed_categories(s)
+        kids = spending.create_category(s, "Kids")
+        add(s, "LIBRERIA LEHMANN #12", 30, NOW)
+        add(s, "UBER EATS", 12, NOW)
+        s.flush()
+        spending.sync_tags(s)
+        spending.assign(s, [merchant_key("LIBRERIA LEHMANN #12")], kids.id)  # a local shop: no keyword knows it
+        spending.assign(s, [merchant_key("UBER EATS")], kids.id)  # an odd choice, on purpose
+        add(s, "LIBRERIA LEHMANN #40", 20, NOW)  # another branch: same base name -> learned (strong)
+        add(s, "Librería Lehmann Escazú", 15, NOW)  # accents and a location: first two words match -> learned
+        add(s, "UBER *TRIP 8XK2", 9, NOW)  # only "uber" in common (weak): the Transport keyword wins
+        add(s, "AMAZON.COM*2K4LL", 40, NOW)  # nothing you taught matches: keyword guess
+        s.flush()
+        spending.sync_tags(s)
+        tags = {t.merchant_key: t for t in s.scalars(select(MerchantTag))}
+        lehmann = tags[merchant_key("LIBRERIA LEHMANN #40")]
+        assert (lehmann.category_id, lehmann.assigned_by) == (kids.id, "learned")
+        accented = tags[merchant_key("Librería Lehmann Escazú")]
+        assert (accented.category_id, accented.assigned_by) == (kids.id, "learned")
+        transport = s.scalar(select(Category.id).where(Category.name == "Transport"))
+        trip = tags[merchant_key("UBER *TRIP 8XK2")]
+        assert (trip.category_id, trip.assigned_by) == (transport, "auto")
+        assert tags[merchant_key("AMAZON.COM*2K4LL")].assigned_by == "auto"
+
+
+def test_moving_a_merchant_offers_its_lookalikes(db):
+    with db.session_scope() as s:
+        spending.seed_categories(s)
+        for name in ("PRICESMART ZAPOTE #102", "PRICESMART ZAPOTE #305", "PRICESMART ESCAZU", "PIZZA HUT"):
+            add(s, name, 10, NOW)
+        s.flush()
+        spending.sync_tags(s)
+        housing = s.scalar(select(Category.id).where(Category.name == "Housing"))
+        spending.assign(s, [merchant_key("PRICESMART ESCAZU")], housing)  # yours: never offered for moving
+        spending.assign(s, [merchant_key("PRICESMART ZAPOTE #102")], housing)
+        s.flush()
+        similar = spending.similar_merchants(s, merchant_key("PRICESMART ZAPOTE #102"))
+        assert [x["name"] for x in similar] == ["PRICESMART ZAPOTE #305"]
+    client = TestClient(create_app(init=False))
+    r = client.post("/api/spending/assign", json={"keys": [merchant_key("PRICESMART ESCAZU")], "category_id": None}).json()
+    # #102 is yours (never offered); the other branch, still auto-categorised, is
+    assert r["assigned"] == 1 and [x["name"] for x in r["similar"]] == ["PRICESMART ZAPOTE #305"]

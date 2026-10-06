@@ -448,9 +448,70 @@ def create_app(init: bool = True) -> FastAPI:
             raise HTTPException(422, "no merchants given")
         try:
             with session_scope() as s:
-                return {"assigned": spending.assign(s, body.keys, body.category_id)}
+                n = spending.assign(s, body.keys, body.category_id)
+                s.flush()
+                # one merchant moved: offer to move its look-alikes (branches, reference codes) too
+                similar = spending.similar_merchants(s, body.keys[0]) if len(body.keys) == 1 else []
+                return {"assigned": n, "similar": similar}
         except LookupError as exc:
             raise HTTPException(404, str(exc)) from exc
+
+    def expense_filter(params) -> "expenses.Filter":
+        from datetime import date as _date
+
+        from fraudalert import expenses
+
+        def day(name):
+            v = params.get(name, "").strip()
+            try:
+                return _date.fromisoformat(v) if v else None
+            except ValueError:
+                raise HTTPException(422, f"{name} must be a date like 2026-09-01") from None
+
+        def num(name):
+            v = params.get(name, "").replace(",", "").strip()
+            try:
+                return float(v) if v else None
+            except ValueError:
+                raise HTTPException(422, f"{name} must be a number") from None
+
+        category = params.get("category", "").strip() or None
+        if category not in (None, "uncategorized") and not category.isdigit():
+            raise HTTPException(422, "category must be an id or 'uncategorized'")
+        sort, source = params.get("sort", "when"), params.get("source", "all")
+        if sort not in expenses.SORTS or source not in expenses.SOURCES:
+            raise HTTPException(422, f"sort must be one of {expenses.SORTS}, source one of {expenses.SOURCES}")
+        return expenses.Filter(start=day("from"), end=day("to"), category=category, q=params.get("q", ""),
+                               card=params.get("card", "").strip(), source=source, amin=num("min"), amax=num("max"),
+                               sort=sort, desc=params.get("dir", "desc") != "asc")
+
+    @app.get("/expenses")
+    def expenses_page(request: Request):
+        from fraudalert.models import Category
+
+        with session_scope() as s:
+            cards = sorted(c for c in s.scalars(select(Transaction.card_last4).distinct()) if c)
+            categories = [(c.id, c.name) for c in s.scalars(select(Category).order_by(Category.sort, Category.name))]
+        return templates.TemplateResponse(request, "expenses.html", {"cards": cards, "categories": categories})
+
+    @app.get("/api/expenses")
+    def api_expenses(request: Request, offset: int = 0, limit: int = 100):
+        from fraudalert import expenses
+
+        f = expense_filter(request.query_params)
+        with session_scope() as s:
+            return expenses.page(s, pipeline.Env.load(s, get_settings()), f, max(offset, 0), max(1, min(limit, 500)))
+
+    @app.get("/expenses.csv")
+    def expenses_csv(request: Request):
+        from fraudalert import expenses
+
+        f = expense_filter(request.query_params)
+        with session_scope() as s:
+            env = pipeline.Env.load(s, get_settings())
+            body = expenses.to_csv(expenses.rows(s, env, f), env.home_currency)
+        return PlainTextResponse(body, media_type="text/csv",
+                                 headers={"Content-Disposition": 'attachment; filename="expenses.csv"'})
 
     @app.get("/savings")
     def savings_page(request: Request):

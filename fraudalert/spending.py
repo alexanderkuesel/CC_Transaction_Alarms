@@ -72,6 +72,84 @@ def guess_category(merchant: str) -> str | None:
     return None
 
 
+# ---- learning from your choices -------------------------------------------------------------------
+# Banks put branch numbers, reference codes and processor prefixes in merchant names, so one shop shows up
+# under several names. A merchant's "base name" drops those; new merchants whose base name matches one you
+# categorised get your category ("learned"):
+#   strong: same base name, or the same first two words     -> beats the keyword guess
+#   weak:   the same distinctive first word only            -> used when no keyword matches either
+# Matches must agree: if your merchants with that base point to different categories, nothing is learned.
+
+_PROCESSORS = {"dlc", "dp", "tp", "sq", "tst", "paypal", "pp", "sp", "pos", "ws", "fs"}  # "DLC*UBER EATS"
+_GENERIC = {"the", "la", "el", "los", "las", "de", "del", "pago", "pagos", "compra", "tienda", "store", "shop",
+            "www", "super", "mini", "bar", "cafe", "restaurante", "soda", "servicio", "servicios"}
+
+
+def base_name(merchant: str) -> str:
+    """'PRICESMART ZAPOTE #102' -> 'pricesmart zapote'; 'DLC*UBER EATS_ SAN JOSE_' -> 'uber eats san jose';
+    'AMAZON.COM*2K4LL' -> 'amazon com'; accents and case ignored."""
+    text = _fold(merchant)
+    head, star, rest = text.partition("*")
+    if star and head.strip() in _PROCESSORS:
+        text = rest
+    words = re.findall(r"[a-z0-9]+", text)
+    return " ".join(w for w in words if len(w) > 1 and not any(c.isdigit() for c in w))
+
+
+def _match(a: str, b: str) -> tuple[int, int]:
+    """(strength, shared leading words): 2 strong, 1 weak, 0 none."""
+    if not a or not b:
+        return 0, 0
+    wa, wb = a.split(), b.split()
+    common = 0
+    for x, y in zip(wa, wb):
+        if x != y:
+            break
+        common += 1
+    if a == b or common >= 2:
+        return 2, max(common, len(wa))
+    if common == 1 and len(wa[0]) >= 4 and wa[0] not in _GENERIC:
+        return 1, 1
+    return 0, 0
+
+
+def _learned(base: str, taught: list[tuple[str, int | None]]) -> tuple[int | None, int]:
+    """Category from your own assignments (base name, category id), and the match strength (0 = none)."""
+    best, cats = (0, 0), set()
+    for other, cid in taught:
+        score = _match(base, other)
+        if score[0] == 0:
+            continue
+        if score > best:
+            best, cats = score, {cid}
+        elif score == best:
+            cats.add(cid)
+    if best[0] and len(cats) == 1:
+        return next(iter(cats)), best[0]
+    return None, 0
+
+
+def _taught(session: Session) -> list[tuple[str, int | None]]:
+    return [(base_name(t.merchant_key), t.category_id)
+            for t in session.scalars(select(MerchantTag).where(MerchantTag.assigned_by == "user"))]
+
+
+def similar_merchants(session: Session, key: str) -> list[dict]:
+    """Merchants that look like `key` (strong or weak match) and aren't in its category yet, so the UI can offer
+    to move them too. Merchants you assigned yourself are left alone."""
+    tag = session.scalar(select(MerchantTag).where(MerchantTag.merchant_key == key))
+    if tag is None:
+        return []
+    base = base_name(key)
+    names = {merchant_key(m or ""): m for m in session.scalars(select(Transaction.merchant).distinct())}
+    out = []
+    for t in session.scalars(select(MerchantTag).where(MerchantTag.merchant_key != key,
+                                                       MerchantTag.assigned_by != "user")):
+        if t.category_id != tag.category_id and _match(base_name(t.merchant_key), base)[0]:
+            out.append({"key": t.merchant_key, "name": names.get(t.merchant_key, t.merchant_key)})
+    return sorted(out, key=lambda x: x["name"])
+
+
 # ---- categories & tags ----------------------------------------------------------------------------
 
 def seed_categories(session: Session) -> None:
@@ -87,17 +165,25 @@ def seed_categories(session: Session) -> None:
 
 
 def sync_tags(session: Session) -> int:
-    """Create a tag for every merchant that doesn't have one yet, auto-categorised. Returns how many."""
+    """Create a tag for every merchant that doesn't have one yet: from your own choices for similar merchants
+    when they agree ("learned"), else from keywords ("auto"). Returns how many."""
     seed_categories(session)
     known = set(session.scalars(select(MerchantTag.merchant_key)))
     by_name = {c.name: c.id for c in session.scalars(select(Category))}
+    taught = None
     added = 0
     for merchant in session.scalars(select(Transaction.merchant).distinct()):
         key = merchant_key(merchant or "")
         if not key or key in known:
             continue
-        guess = guess_category(merchant or "")
-        session.add(MerchantTag(merchant_key=key, category_id=by_name.get(guess), assigned_by="auto"))
+        if taught is None:
+            taught = _taught(session)
+        learned, strength = _learned(base_name(key), taught)
+        guess = by_name.get(guess_category(merchant or ""))
+        if strength == 2 or (strength == 1 and guess is None):
+            session.add(MerchantTag(merchant_key=key, category_id=learned, assigned_by="learned"))
+        else:
+            session.add(MerchantTag(merchant_key=key, category_id=guess, assigned_by="auto"))
         known.add(key)
         added += 1
     session.flush()

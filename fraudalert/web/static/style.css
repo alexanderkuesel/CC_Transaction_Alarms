@@ -515,3 +515,20 @@ tr.total-row td { font-weight: 600; background: var(--panel); }
 #inc-table tfoot td { background: var(--panel); border-top: 2px solid var(--border); }
 .kpi-loop.loop-hi { border-left: 4px solid var(--p2); }
 .kpi-loop.loop-hihi { border-left: 4px solid var(--p1); }
+
+/* ---------- Expenses ---------- */
+.exp-filters { display: flex; flex-wrap: wrap; gap: .6rem .9rem; align-items: flex-end; padding: .8rem 1rem; }
+.ef { display: flex; flex-direction: column; gap: .15rem; }
+.ef label { margin: 0; }
+.ef.off { display: none; }
+.ef-grow { flex: 1 1 180px; } .ef-grow input { width: 100%; }
+.ef-num { width: 7em; }
+.exp-total { margin: .2rem 0 .6rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.exp-table select { max-width: 190px; font-size: 13px; padding: .15rem .35rem; }
+.exp-table td .tb-you { margin-left: .35rem; }
+th .sort { border: 0; background: none; padding: 0; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; }
+th .sort::after { content: attr(data-arrow); margin-left: .25rem; }
+tr.row-excluded td { text-decoration: line-through; color: var(--muted); }
+tr.row-excluded td select { text-decoration: none; }
+.exp .flash { position: fixed; right: 1rem; bottom: 1rem; z-index: 20; margin: 0; max-width: min(420px, calc(100vw - 2rem)); }
+.exp .flash[hidden] { display: none; }

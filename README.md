@@ -146,6 +146,12 @@ Since every card transaction already lands here, the **Spending** page turns it 
   categorised automatically from their names the first time they're seen (*auto*). Move a merchant
   from its row, from the trend view, or select several and move them together. What you set is
   marked *you* and never overwritten. Deleting a category moves its merchants to *Uncategorized*.
+* **Learning from your choices:** banks add branch numbers, reference codes and processor prefixes to merchant
+  names (`PRICESMART ZAPOTE #102` / `#305`, `AMAZON.COM*2K4LL`). A new merchant whose name matches one you
+  categorised (same name once those are stripped, or the same first two words) gets your category, marked
+  *learned*. A match on just the first word (`AUTOMERCADO LINDORA` after `AUTOMERCADO ESCAZU`) is used only when no
+  keyword applies, and choices that disagree teach nothing. When you move a merchant, you're offered to move its
+  existing look-alikes too; the ones you set yourself are left alone.
 * **Fixed expenses:** for monthly costs that never reach your card (rent, school fees, transfers,
   cash), add a row on the *Fixed expenses* tab with its amount, currency, category, day of the month and
   the months it applies to (*Until* is optional). Each one is booked on that day every month (the last
@@ -155,6 +161,18 @@ Since every card transaction already lands here, the **Spending** page turns it 
   a price change, set *Until* on the old row and add a new one, so past months keep the old amount.
 * In keeping with ISA-101, everything is grey until a budget limit is reached. Transactions you
   acknowledged as **fraud** don't count as spending, and nor do zero-amount card tests.
+
+## Expenses: the raw data
+
+The **Expenses** page lists every expense as a row: card purchases from your alert emails and each booked fixed
+expense, with date, merchant, category, amount (original and home currency), card, source and status.
+
+* Filter by period (this month, last month, 90 days, this year, 12 months, everything, or custom dates),
+  category, card, source, a search over merchants and notes, and an amount range (home currency). Sort by any
+  column. The line above the table totals what's filtered. Purchases you marked as fraud stay listed (struck
+  through) but aren't counted.
+* Change a row's category to move that merchant, with the same look-alike offer as above.
+* **Download CSV** exports exactly what's filtered. Filters live in the address, so a view can be bookmarked.
 
 ## Savings: a control loop
 

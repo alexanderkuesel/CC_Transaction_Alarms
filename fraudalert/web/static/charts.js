@@ -263,9 +263,25 @@
     return t;
   }
 
+  // Move merchants to a category. When one merchant moves and look-alikes exist (other branches, reference
+  // codes), offer to move those too. Returns how many merchants moved in total.
+  async function assignCategory(keys, categoryId) {
+    const cid = categoryId === "" || categoryId == null ? null : Number(categoryId);
+    const r = await api("/api/spending/assign", { method: "POST", body: JSON.stringify({ keys, category_id: cid }) });
+    let moved = r.assigned;
+    if (r.similar && r.similar.length) {
+      const names = r.similar.slice(0, 8).map(s => "• " + s.name).join("\n") + (r.similar.length > 8 ? `\n… and ${r.similar.length - 8} more` : "");
+      if (confirm(`Also move ${r.similar.length} similar merchant${r.similar.length === 1 ? "" : "s"} to the same category?\n\n${names}`)) {
+        await api("/api/spending/assign", { method: "POST", body: JSON.stringify({ keys: r.similar.map(s => s.key), category_id: cid }) });
+        moved += r.similar.length;
+      }
+    }
+    return moved;
+  }
+
   window.FTA = {
     el, h, money, compact, monthName, dayLabel, longMonth, signed, pctText, pctOf, niceMax, api, tickLabel,
     STATUS, MIN_PACE_DAYS, showTip, hideTip, sparkline, gauge, statusBadge,
-    bars, runningTotal, runningTotalTable, history, historyTable, frame, yAxis, limitLine,
+    bars, runningTotal, runningTotalTable, history, historyTable, frame, yAxis, limitLine, assignCategory,
   };
 })();
