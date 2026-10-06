@@ -9,10 +9,10 @@
   </div>
 </div>
 {% set b = alarm_banner() %}
-<a class="alarm-banner {{ ('has-unack top-p' ~ (1 if b.counts[1] else 2 if b.counts[2] else 3)) if b.total else 'all-clear' }}" href="/alarms?view=unack" aria-label="Unacknowledged alarms">
+<a class="alarm-banner {{ ('has-unack top-p' ~ top_rank(b.counts)) if b.total else 'all-clear' }}" href="/alarms?view=unack" aria-label="Unacknowledged alarms">
   {% if b.total %}
     <span class="banner-label">Unacknowledged</span>
-    {% for rank in (1, 2, 3) %}
+    {% for rank in RANKS %}
       <span class="banner-count {{ 'zero' if not b.counts[rank] }}">
         <span class="pri pri-{{ rank }} {{ 'blink' if b.counts[rank] }}" aria-hidden="true">{{ rank }}</span>
         <b>{{ b.counts[rank] }}</b> {{ PRIORITY_NAME[rank] }}
@@ -27,15 +27,15 @@
 <section class="card otp-panel {{ 'has-unack' if otp_unack }}" aria-labelledby="otp-head">
   <h2 id="otp-head">OTP requests{% if otp_unack %} · {{ otp_unack }} unacknowledged{% endif %}</h2>
   <p class="muted small">Your bank sent a one-time code to confirm a purchase. If you didn't ask for one, someone is using your
-    card details: never share the code, and call your bank. Always priority 1.</p>
+    card details: never share the code, and call your bank. Always priority {{ OTP_RANK }} ({{ PRIORITY_NAME[OTP_RANK] }}).</p>
   <div class="table-wrap"><table class="alarm-table">
     <thead><tr><th>Pri</th><th>State</th><th title="Local time, {{ tz }}">Received</th><th>For</th><th>Card</th>
       <th style="text-align:right">Amount</th><th>Acknowledge</th></tr></thead>
     <tbody>
     {% for o in otps %}
       {% set state = 'fraud' if o.label_fraud else ('legit' if o.label_fraud is false else 'unack') %}
-      <tr class="row-{{ state }} pri-row-1">
-        <td><span class="pri pri-1 {{ 'blink' if state == 'unack' }}" title="Priority 1 · {{ PRIORITY_NAME[1] }}">1</span></td>
+      <tr class="row-{{ state }} pri-row-{{ OTP_RANK }}">
+        <td><span class="pri pri-{{ OTP_RANK }} {{ 'blink' if state == 'unack' }}" title="Priority {{ OTP_RANK }} · {{ PRIORITY_NAME[OTP_RANK] }}">{{ OTP_RANK }}</span></td>
         <td class="state">
           {% if state == 'unack' %}<span class="state-tag unack">UNACK</span>
           {% elif state == 'fraud' %}<span class="badge badge-fraud">✗ NOT ME</span>
@@ -65,10 +65,10 @@
   <div class="kpi"><span>Unacknowledged</span><b>{{ b.total }}</b></div>
   <div class="kpi" title="Flagged transactions per day over the last 7 days">
     <span>Alarm rate (7 days)</span><b>{{ kpi.per_day_7d }}<small>/day</small></b></div>
-  <div class="kpi kpi-mix" title="Share of alarms by priority over the last 30 days vs ISA-18.2 guidance (~5% High, 15% Medium, 80% Low)">
+  <div class="kpi kpi-mix" title="Share of alarms by priority over the last 30 days vs ISA-18.2 guidance (Critical ~1% or less, ~5% High, 15% Medium, the rest Low)">
     <span>Priority mix (30 days) · target</span>
     <div class="mix">
-      {% for rank in (1, 2, 3) %}
+      {% for rank in RANKS %}
         <span><span class="pri pri-{{ rank }}" aria-hidden="true">{{ rank }}</span>{{ kpi.mix[rank] }}%
           <small class="muted">/ {{ kpi.target[rank] }}%</small></span>
       {% endfor %}
@@ -170,9 +170,9 @@
     {% set pri = txn_priority(t) %}
     {% set unack = t.flagged and t.label_fraud is none %}
     {% set state = 'fraud' if t.label_fraud else ('legit' if t.label_fraud is false else ('unack' if unack else 'normal')) %}
-    <tr class="row-{{ state }} {{ ('pri-row-' ~ pri) if pri }}">
+    <tr class="row-{{ state }} {{ ('pri-row-' ~ pri) if pri is not none }}">
       <td class="sel"><input type="checkbox" name="ids" value="{{ t.id }}" form="bulk" class="row-select" aria-label="Select {{ t.merchant }}"></td>
-      <td>{% if pri %}<span class="pri pri-{{ pri }} {{ 'blink' if unack }}" title="Priority {{ pri }} · {{ PRIORITY_NAME[pri] }}">{{ pri }}</span>{% endif %}</td>
+      <td>{% if pri is not none %}<span class="pri pri-{{ pri }} {{ 'blink' if unack }}" title="Priority {{ pri }} · {{ PRIORITY_NAME[pri] }}">{{ pri }}</span>{% endif %}</td>
       <td class="state">
         {% if state == 'unack' %}<span class="state-tag unack">UNACK</span>
         {% elif state == 'fraud' %}<span class="badge badge-fraud">✗ FRAUD</span>

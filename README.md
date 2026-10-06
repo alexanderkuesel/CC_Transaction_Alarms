@@ -251,13 +251,13 @@ define alarm handling, so the alarm behaviour here follows ISA-18.2.)
 |---|---|
 | Process event | A card transaction parsed from a bank alert email |
 | Alarm | A rule matching a transaction (see **Alarm rules**) |
-| Alarm priority | **1 High** (act now), **2 Medium** (check today), **3 Low** (review when convenient); shown by colour, shape *and* number (red square, amber triangle, slate diamond) |
+| Alarm priority | **0 Critical** (fraud in progress, e.g. an OTP request you didn't make), **1 High** (act now), **2 Medium** (check today), **3 Low** (review when convenient); shown by colour, shape *and* number (purple octagon, red square, amber triangle, slate diamond) |
 | Unacknowledged alarm | Flashes on the **Alarms** page and counts on the *Alarms* menu item and the overview |
 | Acknowledge | **Ack · Legit** / **Ack · Fraud**: your review. The disposition is kept, and doubles as a training label for the anomaly model |
 | Latched alarm | Transactions are discrete events, so there is no "return to normal": an alarm stays active until you acknowledge it |
 | Alarm summary / journal | **Alarms** page (`/alarms`): *Unacknowledged* (default), *All alarms*, and *Journal* (every transaction) |
 | Rationalization | Each rule carries a rationale (why it exists) and a priority. Keep High rare so it keeps its meaning |
-| Alarm system KPIs | Alarm rate per day, and priority mix vs. the ISA-18.2 guideline of roughly 5% High / 15% Medium / 80% Low |
+| Alarm system KPIs | Alarm rate per day, and priority mix vs. the ISA-18.2 guideline of roughly 5% High / 15% Medium / 80% Low (Critical: about 1% or less) |
 
 Built-in alarms:
 
@@ -266,7 +266,7 @@ Built-in alarms:
 * **Charge after a card test** (High): a real charge on the same card within 48 hours of a test-sized one.
 * **Large or foreign purchase** (Medium): over 100 in your home currency, made abroad, or in a currency
   you don't normally use.
-* **OTP request** (High, when configured): see below.
+* **OTP request** (Critical, when configured): see below.
 
 ### OTP requests
 
@@ -277,14 +277,14 @@ in `.env`:
 
 ```bash
 # subject keywords and/or sender; both must match when both are set (comma separated, case-insensitive)
-FRAUDALERT_OTP_SUBJECT_FILTER=código de verificación,OTP
-FRAUDALERT_OTP_SENDER_FILTER=
+FRAUDALERT_OTP_SUBJECT_FILTER=
+FRAUDALERT_OTP_SENDER_FILTER=notificacionesotp_cri@baccredomatic.com   # BAC Costa Rica
 ```
 
-Copy the wording from one of your bank's real OTP emails. Senders listed here are fetched even if they're not in
+For another bank, copy the sender or subject wording from one of its real OTP emails. Senders listed here are fetched even if they're not in
 `FRAUDALERT_SENDER_FILTER`, and OTP subjects pass `FRAUDALERT_SUBJECT_FILTER`. Then restart (`docker compose up -d`).
 
-Every matching email becomes a **priority 1** alarm with its own panel at the top of the **Alarms** page
+Every matching email becomes a **priority 0 (Critical)** alarm with its own panel at the top of the **Alarms** page
 (**Ack · Mine** / **Ack · Not me**). It is also counted in the alarm banner, sent to the webhook, and listed in the daily
 report. It is not a transaction, so it never counts as spending; if the purchase goes through, its own alert
 email follows. The code itself is never forwarded. Run **Emails → Re-parse all emails** to pick up OTP emails
@@ -299,7 +299,8 @@ Existing installs receive new built-in alarms automatically on upgrade (once; if
 Rules are stored in the database, so you can add, disable or delete them from the **Alarm rules** page or the
 API while the pipeline is running. Every change is applied to your whole history straight away.
 
-A rule is a list of conditions joined by **ALL** (AND) or **ANY** (OR), plus a priority. For example:
+A rule is a list of conditions joined by **ALL** (AND) or **ANY** (OR), plus a priority (`severity`: `critical`,
+`high`, `medium` or `low`). For example:
 
 > **Large or foreign purchase** (Medium): `amount > 100 OR is_foreign = true`
 > **Card test** (High): `is_test_amount = true`
@@ -414,7 +415,7 @@ Set `FRAUDALERT_NOTIFY_WEBHOOK_URL` to get a POST for every new alarm. The messa
 priority (`[HIGH] Transaction alarm: ...`). The payload has `text` (Slack/Mattermost), `content` (Discord),
 `priority`, and structured `transaction` fields. Transactions older
 than 2 days are not sent, so a historical backfill won't flood you. OTP requests are sent as
-`[HIGH] OTP request: ...` with an `otp_request` object in place of `transaction`.
+`[CRITICAL] OTP request: ...` with an `otp_request` object in place of `transaction`.
 
 ## Anomaly detection
 

@@ -246,7 +246,7 @@ class RecurringIncome(Base):
 
 class OtpRequest(Base):
     """A one-time-password email: the bank asking you to confirm a (usually online) purchase. One you didn't
-    ask for means someone has your card details, so each is a High alarm until acknowledged. Not a
+    ask for means someone has your card details, so each is a Critical alarm until acknowledged. Not a
     transaction: nothing has been charged, and the purchase's own alert email follows if it goes through."""
 
     __tablename__ = "otp_requests"

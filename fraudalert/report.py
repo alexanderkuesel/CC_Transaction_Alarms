@@ -17,13 +17,14 @@ from datetime import datetime, time, timedelta, timezone
 from email.message import EmailMessage
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from fraudalert.anomaly.explain import summary
 from fraudalert.config import Settings, get_settings
 from fraudalert.db import session_scope
 from fraudalert.models import Alert, OtpRequest, SyncState, Transaction
+from fraudalert.priorities import NAME, OTP_RANK, RANK, RANKS
 
 log = logging.getLogger(__name__)
 
@@ -34,9 +35,9 @@ LAST_ERROR_KEY = "daily_report_last_error"
 DEFAULTS = {"enabled": True, "time": "20:00", "to": "", "bank_name": "", "bank_phone": "", "dashboard_url": ""}
 LATE_ARRIVAL = timedelta(days=3)  # include emails that arrive up to 3 days after the purchase
 MAX_ROWS = 100
-PRIORITY = {"high": 1, "medium": 2, "low": 3}
-PRIORITY_LABEL = {1: "P1 High", 2: "P2 Medium", 3: "P3 Low"}
-PRIORITY_COLOR = {1: "#c62828", 2: "#b7860b", 3: "#5d7d9c"}  # text colours that read on white
+PRIORITY = RANK
+PRIORITY_LABEL = {r: f"P{r} {n}" for r, n in NAME.items()}
+PRIORITY_COLOR = {0: "#8e24aa", 1: "#c62828", 2: "#b7860b", 3: "#5d7d9c"}  # text colours that read on white
 
 
 # ---- preferences ---------------------------------------------------------------------------------
@@ -129,7 +130,7 @@ def build_report(session: Session, settings: Settings, since: datetime, until: d
     ).order_by(Transaction.occurred_at.desc())).all()
     unack = sorted(
         session.scalars(load.where(Transaction.flagged.is_(True), Transaction.label_fraud.is_(None))).all(),
-        key=lambda t: (_priority(t) or 9, -_utc(t.occurred_at).timestamp()),
+        key=lambda t: (9 if _priority(t) is None else _priority(t), -_utc(t.occurred_at).timestamp()),
     )
     fraud = session.scalars(load.where(
         Transaction.label_fraud.is_(True), Transaction.occurred_at >= until - timedelta(days=30),
@@ -139,12 +140,15 @@ def build_report(session: Session, settings: Settings, since: datetime, until: d
                            .order_by(OtpRequest.received_at.desc())).all()
 
     spend = sum(env.fx.to_home(float(t.amount), t.currency) for t in period)
-    new_alarms = {1: 0, 2: 0, 3: 0}
+    new_alarms = dict.fromkeys(RANKS, 0)
     for t in period:
-        if t.flagged and (p := _priority(t)):
+        if t.flagged and (p := _priority(t)) is not None:
             new_alarms[p] += 1
-    unack_by = {p: sum(1 for t in unack if _priority(t) == p) for p in (1, 2, 3)}
-    unack_by[1] += len(otps)  # OTP requests are always High
+    new_alarms[OTP_RANK] += session.scalar(select(func.count(OtpRequest.id)).where(
+        OtpRequest.received_at >= since, OtpRequest.received_at < until))
+    shown = [p for p in RANKS if p != OTP_RANK or new_alarms[p]]  # Critical only when there is one
+    unack_by = {p: sum(1 for t in unack if _priority(t) == p) for p in RANKS}
+    unack_by[OTP_RANK] += len(otps)
     n_unack = len(unack) + len(otps)
     local_day = until.astimezone(tz)
 
@@ -174,7 +178,7 @@ def build_report(session: Session, settings: Settings, since: datetime, until: d
     lines = [subject, "", f"Covering {since.astimezone(tz):%Y-%m-%d %H:%M} to {until.astimezone(tz):%Y-%m-%d %H:%M} "
              f"({settings.timezone}).",
              f"{len(period)} transaction(s), {spend:,.2f} {env.home_currency}. New alarms: "
-             f"{new_alarms[1]} High, {new_alarms[2]} Medium, {new_alarms[3]} Low.", ""]
+             + ", ".join(f"{new_alarms[p]} {NAME[p]}" for p in shown) + ".", ""]
     def otp_what(o):
         return " ".join(x for x in (f"{o.amount:,.2f} {o.currency}" if o.amount is not None else "",
                                     o.merchant or o.subject, f"card …{o.card_last4}" if o.card_last4 else "") if x)
@@ -182,10 +186,10 @@ def build_report(session: Session, settings: Settings, since: datetime, until: d
     if n_unack:
         lines += [f"NEEDS YOUR ATTENTION ({n_unack} unacknowledged)", call, ""]
         for o in otps[:MAX_ROWS]:
-            lines.append(f"  [{PRIORITY_LABEL[1]}] {when_otp(o)}  OTP request: {otp_what(o)}  "
+            lines.append(f"  [{PRIORITY_LABEL[OTP_RANK]}] {when_otp(o)}  OTP request: {otp_what(o)}  "
                          "(a one-time code you didn't ask for means someone has your card details)")
         for t in unack[:MAX_ROWS]:
-            lines.append(f"  [{PRIORITY_LABEL[_priority(t) or 3]}] {when(t)}  {money(t)}  {t.merchant}  "
+            lines.append(f"  [{PRIORITY_LABEL[3 if _priority(t) is None else _priority(t)]}] {when(t)}  {money(t)}  {t.merchant}  "
                          f"card …{t.card_last4 or '????'}  auth {t.auth_code or '-'}  ref {t.reference or '-'}  "
                          f"({_alarm_names(t)})")
             if t.anomaly_reasons:
@@ -235,7 +239,7 @@ def build_report(session: Session, settings: Settings, since: datetime, until: d
         """One stacked block per alarm: fits a phone screen, key facts first."""
         out = []
         for t in rows[:MAX_ROWS]:
-            p = _priority(t) or 3
+            p = 3 if _priority(t) is None else _priority(t)
             edge = PRIORITY_COLOR[p] if colour_by_priority else "#c62828"
             ref = f' · Reference <b style="font-family:monospace">{e(t.reference)}</b>' if t.reference else ""
             out.append(
@@ -285,15 +289,14 @@ def build_report(session: Session, settings: Settings, since: datetime, until: d
         f'<div style="font-size:13px;color:#b3b6ba;margin-top:4px">Daily report · {e(local_day.strftime("%A %d %B %Y"))}</div></div>',
         f'<div style="background:#eaebec;padding:10px 16px;font-size:13px">'
         f'<b>{len(period)}</b> transaction(s) · <b>{spend:,.2f} {e(env.home_currency)}</b> · new alarms: '
-        f'<b style="color:{PRIORITY_COLOR[1]}">{new_alarms[1]} High</b>, <b style="color:{PRIORITY_COLOR[2]}">{new_alarms[2]} Medium</b>, '
-        f'<b style="color:{PRIORITY_COLOR[3]}">{new_alarms[3]} Low</b>'
-        f'<div style="color:#5b5e63;font-size:12px">{e(since.astimezone(tz).strftime("%Y-%m-%d %H:%M"))} → '
+        + ", ".join(f'<b style="color:{PRIORITY_COLOR[p]}">{new_alarms[p]} {NAME[p]}</b>' for p in shown)
+        + f'<div style="color:#5b5e63;font-size:12px">{e(since.astimezone(tz).strftime("%Y-%m-%d %H:%M"))} → '
         f'{e(until.astimezone(tz).strftime("%Y-%m-%d %H:%M"))} ({e(settings.timezone)})</div></div>',
     ]
     if n_unack:
         otp_html = "".join(
-            f'<div style="border-left:4px solid {PRIORITY_COLOR[1]};background:#f4f4f5;padding:8px 12px;margin:0 0 8px">'
-            f'<div><b style="color:{PRIORITY_COLOR[1]}">{PRIORITY_LABEL[1]}</b> &nbsp;<b style="font-size:15px">OTP request</b>'
+            f'<div style="border-left:4px solid {PRIORITY_COLOR[OTP_RANK]};background:#f4f4f5;padding:8px 12px;margin:0 0 8px">'
+            f'<div><b style="color:{PRIORITY_COLOR[OTP_RANK]}">{PRIORITY_LABEL[OTP_RANK]}</b> &nbsp;<b style="font-size:15px">OTP request</b>'
             f' · {e(otp_what(o))}</div>'
             f'<div style="color:#5b5e63;font-size:13px">{e(when_otp(o))} · a one-time code you didn\'t ask for means '
             f'someone has your card details. Never share the code.</div></div>'

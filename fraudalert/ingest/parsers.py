@@ -362,11 +362,17 @@ _OTP_MERCHANT_RE = re.compile(
     r"(?P<m>[^\n,;]{2,80}?)\s+(?:por|de|con|for|of|on|using)\b", re.I)
 
 
+# BAC (and similar): "Comercio:" / "Monto:" on their own line, the value on the next non-empty line
+# (or "Comercio: X" on one line, when the HTML puts both in one cell)
+_OTP_LABELLED_RE = re.compile(r"^[ \t]*(?:comercio|merchant)[ \t]*(?::[ \t]*(?=\S)|:?[ \t]*\n(?:[ \t]*\n)*[ \t]*)"
+                              r"(?P<m>[^\n]{1,80}?)[ \t]*$", re.I | re.M)
+
+
 def otp_details(text: str, subject: str, home_currency: str) -> dict:
     """{"merchant", "amount", "currency", "card_last4"} as far as the email says them (else None)."""
     amount = _first_amount(text, home_currency)
     card = _OTP_CARD_RE.search(text)
-    m = _OTP_MERCHANT_RE.search(text) or _OTP_MERCHANT_RE.search(subject)
+    m = _OTP_LABELLED_RE.search(text) or _OTP_MERCHANT_RE.search(text) or _OTP_MERCHANT_RE.search(subject)
     return {
         "merchant": _clean_merchant(m.group("m")) if m else (find_merchant(text, subject) or None),
         "amount": amount[0] if amount else None,

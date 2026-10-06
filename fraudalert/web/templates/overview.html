@@ -30,11 +30,11 @@
           · {{ '{:,.0f}'.format(loop.allowance) }}/day left</small>
       {% endif %}
     </a>
-    <a class="kpi kpi-link kpi-alarms {{ ('has-alarms top-p' ~ (1 if alarm_counts[1] else 2 if alarm_counts[2] else 3)) if alarm_counts.values()|sum }}" href="/alarms?view=unack">
+    <a class="kpi kpi-link kpi-alarms {{ ('has-alarms top-p' ~ top_rank(alarm_counts)) if alarm_counts.values()|sum }}" href="/alarms?view=unack">
       <span>Alarms to review</span>
       {% set total = alarm_counts.values()|sum %}
       <b>{{ total }}</b>
-      <small>{% if total %}{% for rank in (1, 2, 3) if alarm_counts[rank] %}{{ alarm_counts[rank] }} {{ PRIORITY_NAME[rank]|lower }}{{ ' · ' if not loop.last }}{% endfor %}{% else %}all clear{% endif %}</small>
+      <small>{% if total %}{% for rank in RANKS if alarm_counts[rank] %}{{ alarm_counts[rank] }} {{ PRIORITY_NAME[rank]|lower }}{{ ' · ' if not loop.last }}{% endfor %}{% else %}all clear{% endif %}</small>
     </a>
   </section>
 
@@ -122,7 +122,7 @@
           <li>
             <span class="pri pri-{{ t.priority }}" aria-label="{{ PRIORITY_NAME[t.priority] }} priority">{{ t.priority }}</span>
             <span class="al-main"><b>{{ t.merchant }}</b><span class="muted small">{{ t.reason }} · {{ t.when }}</span></span>
-            <span class="num">{{ '{:,.2f}'.format(t.amount) }} {{ t.currency }}</span>
+            <span class="num">{{ ('{:,.2f} '.format(t.amount) ~ t.currency) if t.amount is not none else '' }}</span>
           </li>
         {% endfor %}
         </ul>

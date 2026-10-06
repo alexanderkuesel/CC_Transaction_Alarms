@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     statement_password: str = ""
     statement_sync_hours: int = 24  # statements arrive monthly: check for them at most this often
     # One-time-password emails ("your verification code is ..."). An OTP you didn't ask for means someone is
-    # using your card details right now, so every OTP request raises a High (P1) alarm until you acknowledge
+    # using your card details right now, so every OTP request raises a Critical (P0) alarm until you acknowledge
     # it. Identify them by subject keywords and/or sender (both must match when both are set); senders listed
     # here are fetched even if FRAUDALERT_SENDER_FILTER doesn't include them. Both empty = off.
     otp_subject_filter: str = ""

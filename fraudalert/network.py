@@ -15,13 +15,13 @@ from sqlalchemy.orm import Session, selectinload
 
 from fraudalert.anomaly.features import merchant_key
 from fraudalert.models import Transaction
+from fraudalert.priorities import rank
 
 NEW_MERCHANT_DAYS = 14  # first-ever purchase at a merchant within this many days = "new"
 
-# Worst state wins when a merchant has several transactions. p1-p3 = an unacknowledged alarm of that
+# Worst state wins when a merchant has several transactions. p0-p3 = an unacknowledged alarm of that
 # ISA-18.2 priority; legit = alarms acknowledged as legit; normal = no alarm.
-STATE_ORDER = ["fraud", "p1", "p2", "p3", "legit", "normal"]
-_PRIORITY = {"high": 1, "medium": 2, "low": 3}
+STATE_ORDER = ["fraud", "p0", "p1", "p2", "p3", "legit", "normal"]
 
 
 @dataclass
@@ -45,7 +45,7 @@ def _state(t: Transaction) -> str:
     if t.label_fraud is False:
         return "legit" if t.flagged else "normal"
     if t.flagged and t.alerts:
-        return f"p{min(_PRIORITY.get(a.severity, 3) for a in t.alerts)}"
+        return f"p{min(rank(a.severity) for a in t.alerts)}"
     return "normal"
 
 
@@ -94,7 +94,7 @@ def build_network(session: Session, env, days: int | None, now: datetime | None 
         e = edges.setdefault((card, key), {"count": 0, "total": 0.0, "flagged": 0})
         e["count"] += 1
         e["total"] += amount
-        e["flagged"] += _state(t) in ("fraud", "p1", "p2", "p3")
+        e["flagged"] += _state(t) in ("fraud", "p0", "p1", "p2", "p3")
         card_totals[card]["count"] += 1
         card_totals[card]["total"] += amount
 

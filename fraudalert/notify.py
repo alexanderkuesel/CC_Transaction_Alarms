@@ -4,6 +4,7 @@ import httpx
 
 from fraudalert.config import Settings
 from fraudalert.models import OtpRequest, Transaction
+from fraudalert.priorities import NAME, OTP_RANK, rank
 
 log = logging.getLogger(__name__)
 
@@ -12,8 +13,7 @@ def notify(settings: Settings, txn: Transaction, reasons: list[str]) -> bool:
     """POST to the configured webhook. The `text` key works with Slack/Discord/Mattermost-style hooks."""
     if not settings.notify_webhook_url:
         return False
-    rank = min(({"high": 1, "medium": 2, "low": 3}.get(a.severity, 3) for a in txn.alerts), default=3)
-    priority = {1: "HIGH", 2: "MEDIUM", 3: "LOW"}[rank]
+    priority = NAME[min((rank(a.severity) for a in txn.alerts), default=3)].upper()
     text = (
         f"[{priority}] Transaction alarm: {txn.amount} {txn.currency} at {txn.merchant or 'unknown merchant'}"
         f" on {txn.occurred_at:%Y-%m-%d %H:%M}"
@@ -44,14 +44,15 @@ def notify(settings: Settings, txn: Transaction, reasons: list[str]) -> bool:
 
 
 def notify_otp(settings: Settings, otp: OtpRequest) -> bool:
-    """An OTP request is always High priority: someone is trying to complete a purchase with your card."""
+    """An OTP request is always Critical: someone is trying to complete a purchase with your card."""
     if not settings.notify_webhook_url:
         return False
     what = " ".join(x for x in (
         f"{otp.amount} {otp.currency}" if otp.amount is not None else "",
         f"at {otp.merchant}" if otp.merchant else "",
         f"(card …{otp.card_last4})" if otp.card_last4 else "") if x)
-    text = (f"[HIGH] OTP request{': ' + what if what else ''} on {otp.received_at:%Y-%m-%d %H:%M}\n"
+    priority = NAME[OTP_RANK].upper()
+    text = (f"[{priority}] OTP request{': ' + what if what else ''} on {otp.received_at:%Y-%m-%d %H:%M}\n"
             f"• Your bank sent a one-time code to confirm a purchase. If you didn't ask for it, someone is using "
             f"your card details: don't share the code, and call your bank.")
     payload = {
@@ -66,7 +67,7 @@ def notify_otp(settings: Settings, otp: OtpRequest) -> bool:
             "currency": otp.currency,
             "card_last4": otp.card_last4,
         },
-        "priority": "HIGH",
+        "priority": priority,
         "reasons": ["OTP request"],
     }
     try:

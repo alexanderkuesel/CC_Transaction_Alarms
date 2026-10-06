@@ -38,7 +38,7 @@ class SyncResult:
     failed: int = 0
     flagged: int = 0
     statements: int = 0  # bank statements stored (see fraudalert.statements)
-    otp: int = 0  # new OTP requests (High alarms; see record_otp)
+    otp: int = 0  # new OTP requests (Critical alarms; see record_otp)
     errors: list[str] = field(default_factory=list)
 
     def __str__(self) -> str:
@@ -269,7 +269,7 @@ OTP_HISTORY_NOTE = "Historical: received before it was checked, acknowledged aut
 
 def record_otp(session: Session, raw: RawEmail, settings: Settings, result: SyncResult,
                otp: OtpRequest | None = None) -> OtpRequest:
-    """Store an OTP-request email (FRAUDALERT_OTP_*) as a High alarm and notify, instead of parsing it as a
+    """Store an OTP-request email (FRAUDALERT_OTP_*) as a Critical alarm and notify, instead of parsing it as a
     purchase. Whatever the email says about the purchase (merchant, amount, card) is kept when found.
 
     Only a fresh request is notified and left unacknowledged: one already older than NOTIFY_MAX_AGE when

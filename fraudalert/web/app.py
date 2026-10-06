@@ -20,6 +20,7 @@ from fraudalert import pipeline, prefs
 from fraudalert.config import get_settings
 from fraudalert.db import init_db, session_scope
 from fraudalert.models import Alert, OtpRequest, RawEmail, Rule, SyncState, Transaction
+from fraudalert.priorities import NAME, OTP_RANK, RANKS, SEVERITIES, rank
 from fraudalert.web.filters import PRIORITIES, PRIORITY_RANK, STATES, VIEWS, Filters, txn_priority, txn_state
 from fraudalert.rules.engine import FIELDS, OPS, RuleError, RuleSpec, describe, validate_rule
 
@@ -36,7 +37,6 @@ def _asset_url(path: str) -> str:
     pairs a new page with a stylesheet or script it cached from an older version."""
     return f"/static/{path}?v={_asset_version(path)}"
 PAGE_SIZE = 50
-SEVERITIES = ["high", "medium", "low"]
 APP_NAME = "Finance Trends & Alarms"
 COMMENT_MAX = 1000
 NETWORK_RANGES = {"30": 30, "90": 90, "365": 365, "all": None}
@@ -63,10 +63,11 @@ async def _lifespan(app: FastAPI):
 
 
 # ---- ISA-18.2 alarm vocabulary --------------------------------------------------------------
-# Rules store severity as low/medium/high; the UI shows it as alarm priority P1-P3.
-PRIORITY_NAME = {1: "High", 2: "Medium", 3: "Low"}
-# ISA-18.2 guidance for a healthy system: roughly 5% high, 15% medium, 80% low priority alarms.
-PRIORITY_TARGET = {1: 5, 2: 15, 3: 80}
+# Rules store severity as critical/high/medium/low; the UI shows it as alarm priority P0-P3.
+PRIORITY_NAME = NAME
+# ISA-18.2 guidance for a healthy system: roughly 5% high, 15% medium, 80% low priority alarms, and the few
+# critical ones (a separate, top "emergency" tier) around 1% or less.
+PRIORITY_TARGET = {0: 1, 1: 5, 2: 15, 3: 79}
 
 
 BULK_ACTIONS = {
@@ -102,12 +103,11 @@ def unack_by_priority(s) -> dict[int, int]:
         select(Alert.transaction_id, Alert.severity).join(Transaction)
         .where(Transaction.flagged.is_(True), Transaction.label_fraud.is_(None))
     ):
-        rank = PRIORITY_RANK.get(severity, 3)
-        best[txn_id] = min(best.get(txn_id, 9), rank)
-    counts = {1: 0, 2: 0, 3: 0}
-    for rank in best.values():
-        counts[rank] += 1
-    counts[1] += s.scalar(select(func.count(OtpRequest.id)).where(OtpRequest.label_fraud.is_(None)))  # always High
+        best[txn_id] = min(best.get(txn_id, 9), rank(severity))
+    counts = dict.fromkeys(RANKS, 0)
+    for r in best.values():
+        counts[r] += 1
+    counts[OTP_RANK] += s.scalar(select(func.count(OtpRequest.id)).where(OtpRequest.label_fraud.is_(None)))
     return counts
 
 
@@ -118,11 +118,11 @@ def alarm_kpis(s) -> dict:
     for txn_id, severity in s.execute(
         select(Alert.transaction_id, Alert.severity).join(Transaction).where(Transaction.occurred_at >= since)
     ):
-        best[txn_id] = min(best.get(txn_id, 9), PRIORITY_RANK.get(severity, 3))
+        best[txn_id] = min(best.get(txn_id, 9), rank(severity))
     otps = s.scalar(select(func.count(OtpRequest.id)).where(OtpRequest.received_at >= since))
     n = len(best) + otps
-    mix = {p: round(100 * (sum(1 for r in best.values() if r == p) + (otps if p == 1 else 0)) / n) if n else 0
-           for p in (1, 2, 3)}
+    mix = {p: round(100 * (sum(1 for r in best.values() if r == p) + (otps if p == OTP_RANK else 0)) / n) if n else 0
+           for p in RANKS}
     week = datetime.now(timezone.utc) - timedelta(days=7)
     last7 = s.scalar(select(func.count(Transaction.id)).where(
         Transaction.flagged.is_(True), Transaction.occurred_at >= week))
@@ -152,7 +152,9 @@ def create_app(init: bool = True) -> FastAPI:
 
     templates.env.globals.update(
         alarm_banner=banner, txn_priority=txn_priority,
-        alarms_by_priority=lambda t: sorted(t.alerts, key=lambda a: PRIORITY_RANK.get(a.severity, 3)), PRIORITY_NAME=PRIORITY_NAME, PRIORITY_RANK=PRIORITY_RANK,
+        alarms_by_priority=lambda t: sorted(t.alerts, key=lambda a: rank(a.severity)), PRIORITY_NAME=PRIORITY_NAME, PRIORITY_RANK=PRIORITY_RANK,
+        RANKS=RANKS, OTP_RANK=OTP_RANK,
+        top_rank=lambda counts: next((r for r in RANKS if counts.get(r)), RANKS[-1]),
         VIEWS=VIEWS, APP_NAME=APP_NAME,
     )
 
@@ -190,14 +192,16 @@ def create_app(init: bool = True) -> FastAPI:
             unack = s.scalars(select(Transaction).options(selectinload(Transaction.alerts)).where(
                 Transaction.flagged.is_(True), Transaction.label_fraud.is_(None))
                 .order_by(Transaction.occurred_at.desc()).limit(200)).all()
-            unack = sorted(unack, key=lambda t: txn_priority(t) or 9)[:5]  # stable: newest first within a priority
+            unack = sorted(unack, key=lambda t: 9 if txn_priority(t) is None else txn_priority(t))[:5]
+            otps = s.scalars(select(OtpRequest).where(OtpRequest.label_fraud.is_(None))
+                             .order_by(OtpRequest.received_at.desc()).limit(5)).all()  # stable: newest first within a priority
             cats = spending.category_names(s, [t.merchant for t in recent])
 
             def row(t: Transaction) -> dict:
                 return {"id": t.id, "merchant": t.merchant, "amount": t.amount, "currency": t.currency,
                         "home": env.fx.to_home(float(t.amount), t.currency), "when": _local(t.occurred_at, "%b %d, %H:%M"),
                         "category": cats.get(t.merchant), "state": txn_state(t), "priority": txn_priority(t),
-                        "reason": next((a.reason.split(":")[0] for a in sorted(t.alerts, key=lambda a: PRIORITY_RANK.get(a.severity, 3))), "")}
+                        "reason": next((a.reason.split(":")[0] for a in sorted(t.alerts, key=lambda a: rank(a.severity))), "")}
 
             last_sync = s.get(SyncState, "last_imap_sync")
             from fraudalert.statements.store import overview as statements_overview
@@ -209,7 +213,10 @@ def create_app(init: bool = True) -> FastAPI:
                 "loop": savings.compute(s, env),
                 "stmt_card": next((x for x in stmts if x["kind"] == "card"), None),
                 "stmt_account": next((x for x in stmts if x["kind"] == "account"), None),
-                "recent": [row(t) for t in recent], "alarms": [row(t) for t in unack],
+                "recent": [row(t) for t in recent],
+                "alarms": ([{"merchant": o.merchant or "OTP request", "amount": o.amount, "currency": o.currency or "",
+                             "when": _local(o.received_at, "%b %d, %H:%M"), "priority": OTP_RANK,
+                             "reason": "OTP request"} for o in otps] + [row(t) for t in unack])[:5],
                 "alarm_counts": unack_by_priority(s), "currency": env.home_currency,
                 "last_sync": _local(datetime.fromisoformat(last_sync.value)) if last_sync else None,
                 "has_data": bool(recent),
