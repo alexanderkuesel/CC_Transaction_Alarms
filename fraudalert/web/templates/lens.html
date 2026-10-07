@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Anomaly lens{% endblock %}
+{% block content %}
+<div class="lens" id="lens" data-currency="{{ currency }}">
+  <div class="page-head">
+    <div>
+      <h1>Anomaly lens</h1>
+      <p class="muted">How the anomaly model sees your purchases. The landscape shows the score a purchase would get at every
+        combination of two factors; the curves show what each factor does on its own. Pick any purchase to see the model through it.</p>
+    </div>
+    <nav class="tabs" aria-label="View">
+      <a href="/network" aria-selected="true">Anomaly lens</a>
+      <a href="/network?view=map" aria-selected="false">Card ↔ merchant map</a>
+    </nav>
+  </div>
+
+  <div class="lens-strip card" aria-live="polite">
+    <span><span class="muted">Model</span> <b id="lens-model">{{ info.model }}</b></span>
+    <span title="The 'Unusual pattern' rule raises a Low (priority 3) alarm at or above this score">
+      <span class="muted">Alarm limit</span> <b id="lens-limit">{{ '%.2f' % info.limit }}</b></span>
+    <span><span class="muted">Looking through</span> <b id="lens-subject">a typical purchase</b></span>
+    <button type="button" class="btn btn-sm" id="lens-reset" hidden>Back to a typical purchase</button>
+  </div>
+
+  <div class="lens-top">
+    <section class="card lens-land" aria-labelledby="land-h">
+      <div class="card-head">
+        <h2 id="land-h">Anomaly landscape</h2>
+        <div class="lens-axes">
+          <label>Across <select id="lens-x" aria-label="Horizontal axis">{% for k in knobs if k.key != 'foreign' %}<option value="{{ k.key }}" {{ 'selected' if k.key == 'hour' }}>{{ k.label }}</option>{% endfor %}</select></label>
+          <label>Up <select id="lens-y" aria-label="Vertical axis">{% for k in knobs if k.key != 'foreign' %}<option value="{{ k.key }}" {{ 'selected' if k.key == 'amount' }}>{{ k.label }}</option>{% endfor %}</select></label>
+        </div>
+      </div>
+      <p class="muted small lens-note" id="land-note">Everything else held at a typical purchase. Dots are your purchases; click one to look through it.</p>
+      <div class="lens-canvas" id="land"><p class="muted">Loading…</p></div>
+      <ul class="lens-legend" id="land-legend" aria-label="Legend"></ul>
+    </section>
+
+    <aside class="card lens-face" aria-labelledby="face-h">
+      <h2 id="face-h">Score</h2>
+      <div id="face"></div>
+    </aside>
+  </div>
+
+  <section class="card" aria-labelledby="curves-h">
+    <div class="card-head">
+      <h2 id="curves-h">What moves the score</h2>
+      <span class="muted small">Each factor varied on its own · sorted by how far it can move this score</span>
+    </div>
+    <div class="lens-curves" id="curves"></div>
+  </section>
+
+  <section class="card" aria-labelledby="odd-h">
+    <div class="card-head">
+      <h2 id="odd-h">Most unusual purchases</h2>
+      <input type="search" id="odd-q" placeholder="Find a merchant" aria-label="Find a merchant">
+    </div>
+    <div class="table-wrap"><table class="lens-table" id="odd">
+      <thead><tr><th>Score</th><th>Merchant</th><th style="text-align:right">Amount</th><th>When</th><th>Why (model)</th><th></th></tr></thead>
+      <tbody><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+    </table></div>
+  </section>
+  <div class="flash error" id="lens-err" hidden></div>
+</div>
+<script type="application/json" id="lens-knobs">{{ knobs|tojson }}</script>
+<script src="{{ asset('charts.js') }}"></script>
+<script src="{{ asset('lens.js') }}"></script>
+{% endblock %}

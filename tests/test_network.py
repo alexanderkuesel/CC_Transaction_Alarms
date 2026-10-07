@@ -77,8 +77,8 @@ def test_network_page_and_api(db):
     with db.session_scope() as s:
         add(s, "<script>alert(1)</script>", "1111", 5, days_ago=1)
     client = TestClient(create_app(init=False))
-    page = client.get("/network")
-    assert page.status_code == 200 and "network.js" in page.text and "Network" in page.text
+    page = client.get("/network?view=map")
+    assert page.status_code == 200 and "network.js" in page.text and "Card ↔ merchant map" in page.text
     data = client.get("/api/network?days=all").json()
     assert data["home_currency"] == "USD" and len(data["nodes"]) == 2
     assert client.get("/api/network?days=7").status_code == 422
