@@ -355,7 +355,31 @@ curl -X POST localhost:8000/api/transactions/bulk -H 'content-type: application/
      -d '{"ids": [12, 13, 14], "action": "legit"}'        # legit | fraud | clear | comment (+ "comment")
 ```
 
-## Network map
+## Anomaly lens
+
+The **Anomaly lens** page (`/network`) shows how the anomaly model sees your purchases, in your units rather than
+as feature vectors. Every chart is computed by the live model (the Isolation Forest once trained, else the
+statistical baseline) asking "what if" questions about a purchase.
+
+* **Anomaly landscape:** a heatmap of the score a purchase would get at every combination of two factors you pick
+  (time of day × amount by default; also day of week, earlier purchases at the merchant, hours since your previous
+  purchase, purchases in the past 24 h). Light means normal for you, dark means unusual. The hatched area is at or
+  above the alarm limit of the "Unusual pattern" rule, and the dashed line is that limit. Your purchases are the
+  dots; ringed dots are above the limit.
+* **What moves the score:** one curve per factor, showing the score as that factor alone changes, with this
+  purchase's value (solid marker) and your usual value (dotted). Curves are sorted by how far each factor can move
+  the score. When a whole curve is high, its axis zooms in (a dashed baseline marks the zoom), so you can see what
+  would bring an unusual purchase back under the limit.
+* **Why this score:** the explanation stored with each purchase, as shares of the score.
+
+Click a dot or **Look through** in the *Most unusual purchases* table to look at the model through that purchase.
+Everything not on the two axes is then held at that purchase's values. Changing the amount also updates the two
+amount comparisons (against your history and against that merchant), exactly as at scoring time.
+
+Scores are percentiles of your own history: 0.98 means "more unusual than 98% of your purchases". The previous
+**Card ↔ merchant map** is still one tab away (`/network?view=map`).
+
+## Card ↔ merchant map
 
 The **Network** page complements the alarm summary. It draws your cards (squares) and the merchants they were used at (circles, sized by
 total spend) as a graph, so unusual patterns stand out at a glance:

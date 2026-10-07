@@ -540,3 +540,95 @@ tr.row-excluded td select { text-decoration: none; }
 .otp-panel.has-unack { border-left: 4px solid var(--p0); }
 .otp-panel h2 { margin: 0 0 .25rem; font-size: 16px; }
 .otp-panel .alarm-table { margin-top: .5rem; }
+
+/* ---------- Anomaly lens: the model's score as a landscape (ISA-101: one grey-slate ramp; the alarm zone is hatched) ---------- */
+.lens {
+  --l0: #eceef1; --l1: #dbe0e6; --l2: #c4ccd6; --l3: #a5b2c2; --l4: #8193a9; --l5: #5d7290; --l6: #3b5272;
+  --lens-hatch: rgba(255, 255, 255, .35); --lens-ink: #1d1e20; --lens-ring: #f4f4f5; --grid: #cdcfd2; --pen: #3f4852;
+}
+@media (prefers-color-scheme: dark) {
+  .lens {
+    --l0: #26292d; --l1: #2d333a; --l2: #35404c; --l3: #415064; --l4: #52667f; --l5: #6a82a0; --l6: #93abc8;
+    --lens-hatch: rgba(20, 22, 25, .45); --lens-ink: #f1f2f3; --lens-ring: #1b1c1e; --grid: #34373b; --pen: #c9ced4;
+  }
+}
+.lens .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+.lens.busy .lens-canvas, .lens.busy .lens-curves { opacity: .55; transition: opacity .15s; }
+.lens-strip { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; align-items: center; padding: .55rem 1rem; }
+.lens-strip .btn { margin-left: auto; }
+.lens-top { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 1rem; align-items: start; }
+@media (max-width: 980px) { .lens-top { grid-template-columns: minmax(0, 1fr); } }
+.lens-axes { display: flex; gap: .75rem; flex-wrap: wrap; font-size: 13px; }
+.lens-axes select { margin-left: .3rem; }
+.lens-note { margin: 0 0 .5rem; }
+.lens-canvas { min-height: 280px; }
+.lens-canvas svg { display: block; max-width: 100%; }
+.lens .cell { shape-rendering: crispEdges; }
+.lens .b0 { fill: var(--l0); background: var(--l0); } .lens .b1 { fill: var(--l1); background: var(--l1); }
+.lens .b2 { fill: var(--l2); background: var(--l2); } .lens .b3 { fill: var(--l3); background: var(--l3); }
+.lens .b4 { fill: var(--l4); background: var(--l4); } .lens .b5 { fill: var(--l5); background: var(--l5); }
+.lens .b6 { fill: var(--l6); background: var(--l6); }
+.lens .hatch { stroke: var(--lens-hatch); stroke-width: 2; }
+.lens .contour-halo { fill: none; stroke: var(--lens-ring); stroke-width: 4; stroke-linecap: square; }
+.lens .contour { fill: none; stroke: var(--lens-ink); stroke-width: 2; stroke-dasharray: 5 3; stroke-linecap: square; }
+.lens .tick { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.lens .tickmark { stroke: var(--muted); }
+.lens .axis-label { font-size: 12px; fill: var(--fg); font-weight: 600; }
+.lens .dot { fill: var(--lens-ink); stroke: var(--lens-ring); stroke-width: 1.2; opacity: .8; cursor: pointer; }
+.lens .dot.hot { fill: var(--lens-ring); stroke: var(--lens-ink); stroke-width: 2; opacity: 1; }
+.lens .dot:hover, .lens .dot:focus { r: 6; opacity: 1; outline: none; }
+.lens .cross { stroke: var(--lens-ink); stroke-width: 1; stroke-dasharray: 2 3; opacity: .7; pointer-events: none; }
+.lens .focus-ring { fill: none; stroke: var(--lens-ink); stroke-width: 2.5; pointer-events: none; }
+.lens .focus-dot { fill: var(--lens-ink); stroke: var(--lens-ring); stroke-width: 2; pointer-events: none; }
+.lens-legend { display: flex; flex-wrap: wrap; gap: .35rem .9rem; list-style: none; padding: 0; margin: .6rem 0 0; font-size: 12px; color: var(--muted); }
+.lens-legend li { display: inline-flex; align-items: center; gap: .35rem; }
+.lens-legend .sw { width: 14px; height: 14px; border-radius: 2px; border: 1px solid var(--border); }
+.lens-legend .sw.alarm { background-image: repeating-linear-gradient(45deg, var(--lens-hatch) 0 2px, transparent 2px 6px); }
+.lens-legend .sw-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--lens-ink); }
+.lens-legend .sw-dot.hot { width: 10px; height: 10px; background: var(--panel); border: 2px solid var(--lens-ink); }
+.lens-legend .sw-line { width: 18px; border-top: 2px dashed var(--lens-ink); }
+
+/* faceplate */
+.lens-face h2 { margin: 0 0 .5rem; font-size: 16px; }
+.lens-face h3 { margin: 1rem 0 .4rem; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.face-head b { display: block; font-size: 15px; overflow-wrap: anywhere; }
+.face-amt { font-variant-numeric: tabular-nums; }
+.face-score { display: flex; flex-direction: column; margin: .8rem 0 .4rem; }
+.face-score .num { font-size: 2.6rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.face-score.hot .num { color: var(--fg); }
+.face-gauge { position: relative; height: 10px; background: var(--l0); border: 1px solid var(--border); border-radius: 2px; }
+.face-gauge .fill { position: absolute; inset: 0 auto 0 0; background: var(--l5); border-radius: 1px 4px 4px 1px; }
+.face-gauge .fill.hot { background: var(--p3); }
+.face-gauge .lim { position: absolute; top: -4px; bottom: -4px; width: 0; border-left: 2px dashed var(--lens-ink); }
+.why { list-style: none; padding: 0; margin: 0; display: grid; gap: .45rem; }
+.why li { display: grid; grid-template-columns: 2.6rem 1fr; gap: .1rem .5rem; align-items: baseline; }
+.why .why-pct { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+.why .link { text-align: left; padding: 0; }
+.why .why-track { grid-column: 2; height: 4px; background: var(--l1); border-radius: 2px; overflow: hidden; }
+.why .why-bar { display: block; height: 100%; background: var(--l5); border-radius: 0 2px 2px 0; }
+
+/* curves: small multiples */
+.lens-curves { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .75rem; }
+.lens-curve { margin: 0; padding: .55rem .6rem .5rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel-2); transition: box-shadow .3s; }
+.lens-curve.flash-on { box-shadow: 0 0 0 3px var(--lens-ink); }
+.lens-curve figcaption { display: flex; justify-content: space-between; gap: .5rem; font-size: 13px; margin-bottom: .2rem; }
+.lens-curve svg { display: block; overflow: visible; }
+.lens-curve .grid { stroke: var(--grid); } .lens-curve .base { stroke: var(--muted); }
+.lens-curve .limit-line { stroke: var(--lens-ink); stroke-width: 1.5; stroke-dasharray: 5 3; }
+.lens-curve .curve { fill: none; stroke: var(--pen); stroke-width: 2; stroke-linejoin: round; }
+.lens-curve .curve-wash { fill: var(--l2); opacity: .55; }
+.lens-curve .stem { stroke: var(--pen); stroke-width: 2; } .lens-curve .stem-dot { fill: var(--pen); }
+.lens-curve .typical { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 1 3; }
+.lens-curve .hit { fill: transparent; cursor: crosshair; }
+.lens-curve .hover-dot { fill: var(--panel); stroke: var(--lens-ink); stroke-width: 2; pointer-events: none; }
+
+/* table */
+.lens-table tr.sel td { background: var(--accent-soft); }
+.mini-meter { display: inline-block; width: 46px; height: 5px; margin-left: .45rem; background: var(--l1); border-radius: 2px; vertical-align: middle; overflow: hidden; }
+.mini-meter span { display: block; height: 100%; background: var(--l5); }
+.mini-meter.hot span { background: var(--p3); }
+#odd-q { max-width: 220px; }
+.lens [hidden] { display: none !important; }
+.lens-table td:last-child { white-space: nowrap; }
+.lens-curve figcaption .muted { white-space: nowrap; }
+.lens-curve.zoomed .base { stroke-dasharray: 3 3; } /* a broken baseline: this axis doesn't start at 0 */

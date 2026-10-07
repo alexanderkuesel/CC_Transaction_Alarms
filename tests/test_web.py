@@ -211,7 +211,7 @@ def test_static_assets_are_versioned_by_content(db):
 
     client = TestClient(create_app(init=False))
     static = Path(__file__).parents[1] / "fraudalert" / "web" / "static"
-    for page, asset in [("/", "style.css"), ("/spending", "spending.js"), ("/network", "network.js")]:
+    for page, asset in [("/", "style.css"), ("/spending", "spending.js"), ("/network?view=map", "network.js"), ("/network", "lens.js")]:
         html = client.get(page).text
         m = re.search(rf'/static/{re.escape(asset)}\?v=([0-9a-f]+)"', html)
         assert m, f"{page} doesn't link a versioned {asset}"

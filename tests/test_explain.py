@@ -85,7 +85,7 @@ def test_reasons_stored_for_notable_scores_and_shown(db, tmp_path):
         rule = s.scalar(select(Rule).where(Rule.name == "Unusual pattern (anomaly model)"))
         rule.conditions = [{"field": "anomaly_score", "op": "gte", "value": 0.9}]
     assert client.get("/api/network?days=all").json()["anomaly"]["limit"] == 0.9
-    page = client.get("/network").text
+    page = client.get("/network?view=map").text
     assert 'id="limit"' in page and "Beyond the anomaly limit" in page
 
 

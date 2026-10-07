@@ -26,7 +26,7 @@
       {% set top = top_rank(b.counts) %}
       <span class="nav-count p{{ top }}{{ ' blink' if top <= 1 }}"
             title="{{ b.total }} unacknowledged alarm{{ 's' if b.total != 1 }}">{{ b.total }}</span>{% endif %}</a>
-    <a href="/network" class="{{ 'active' if p.startswith('/network') }}">Network</a>
+    <a href="/network" class="{{ 'active' if p.startswith('/network') }}">Anomaly lens</a>
     <span class="nav-sep" aria-hidden="true"></span>
     <a href="/rules" class="{{ 'active' if p.startswith('/rules') }} nav-minor">Rules</a>
     <a href="/emails" class="{{ 'active' if p.startswith('/emails') }} nav-minor">Emails</a>

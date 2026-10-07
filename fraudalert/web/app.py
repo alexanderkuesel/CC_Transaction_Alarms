@@ -322,12 +322,51 @@ def create_app(init: bool = True) -> FastAPI:
         return RedirectResponse(request.headers.get("referer") or "/", status_code=303)
 
     @app.get("/network")
-    def network_page(request: Request, days: str = "90"):
+    def network_page(request: Request, days: str = "90", view: str = "lens"):
+        """The anomaly lens (how the model scores purchases); `view=map` = the card ↔ merchant map."""
         from fraudalert.network import NEW_MERCHANT_DAYS
 
-        return templates.TemplateResponse(request, "network.html", {
-            "days": days if days in NETWORK_RANGES else "90", "new_days": NEW_MERCHANT_DAYS,
-        })
+        if view == "map":
+            return templates.TemplateResponse(request, "network.html", {
+                "days": days if days in NETWORK_RANGES else "90", "new_days": NEW_MERCHANT_DAYS,
+            })
+        from fraudalert.anomaly.lens import knobs_json
+        from fraudalert.network import anomaly_info
+
+        with session_scope() as s:
+            info = anomaly_info(s)
+        return templates.TemplateResponse(request, "lens.html", {"knobs": knobs_json(), "info": info,
+                                                                  "currency": get_settings().home_currency.upper()})
+
+    def _lens_scorer():
+        from fraudalert.anomaly import get_detector
+        from fraudalert.anomaly.lens import Scorer
+
+        return Scorer(get_detector(get_settings().detector))
+
+    @app.get("/api/lens/points")
+    def api_lens_points():
+        from fraudalert.anomaly.lens import points
+        from fraudalert.network import anomaly_info
+
+        with session_scope() as s:
+            env = pipeline.Env.load(s, get_settings())
+            scorer = _lens_scorer()
+            return {"points": points(s, env), "limit": anomaly_info(s)["limit"], "model": scorer.name,
+                    "isolation_forest": scorer.isolation_forest, "currency": env.home_currency}
+
+    @app.get("/api/lens/slice")
+    def api_lens_slice(x: str = "hour", y: str = "amount", txn: int | None = None):
+        from fraudalert.anomaly.lens import slice_
+
+        with session_scope() as s:
+            env = pipeline.Env.load(s, get_settings())
+            try:
+                return slice_(s, env, _lens_scorer(), txn, x, y)
+            except LookupError as exc:
+                raise HTTPException(404, str(exc)) from None
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from None
 
     @app.get("/api/network")
     def api_network(days: str = "90"):
