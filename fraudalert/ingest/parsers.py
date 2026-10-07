@@ -29,6 +29,12 @@ class ParsedTransaction:
     country: str | None = None  # where the purchase happened, when the email says
     auth_code: str | None = None  # the bank's authorization / approval code ("Autorización")
     reference: str | None = None  # the bank's reference number ("Referencia"), if any
+    source: str = "email"  # "email" = a card alert; SINPE = a bank transfer (merchant = who was paid)
+    payer: str | None = None  # transfers: who sent the money, as the email names them
+    note: str | None = None  # transfers: the description ("por concepto de"), when there is one
+
+
+SINPE = "sinpe"  # Transaction.source for SINPE transfers (Costa Rica's interbank payment system)
 
 
 # Symbols are checked longest-first so "US$" wins over "$".
@@ -338,7 +344,66 @@ class SpanishAlertParser(BaseParser):
         )
 
 
-PARSERS: list[BaseParser] = [SpanishAlertParser(), GenericAlertParser()]
+class SinpeTransferParser(BaseParser):
+    """BAC Credomatic's "Notificación de Transferencia Local" (SINPE, Costa Rica's interbank transfers):
+
+        Estimado(a) JUAN PEREZ MORA :
+        BAC Credomatic le comunica que MARIA LOPEZ realizó una transferencia electrónica a su cuenta N° *****1234.
+        La transferencia se realizó el día 07-10-2026 a las 12:22:51 horas; por un monto de 60.000,00 CRC ,
+        por concepto de:
+        Sin Descripcion
+        El número de referencia es 2026100700000000000000001
+
+    The email is addressed to whoever received the money ("Estimado(a) ..."): that's the payee, stored as the
+    merchant. Whether it's your money going out or coming in is decided by the pipeline against
+    FRAUDALERT_ACCOUNT_HOLDER (see pipeline._parse_into_transaction)."""
+
+    name = "bac-sinpe"
+    MARKER = re.compile(r"realiz[oó]\s+una\s+transferencia", re.I)
+    PAYEE = re.compile(r"estimad[oa](?:\s*\(\s*[ao]\s*\))?\s+(?P<v>[^\n:]+?)\s*:", re.I)
+    PAYER = re.compile(r"le\s+comunica\s+que\s+(?P<v>.+?)\s+realiz[oó]\s+una\s+transferencia", re.I | re.S)
+    WHEN = re.compile(r"el\s+d[ií]a\s+(?P<d>\d{1,2}-\d{1,2}-\d{4})\s+a\s+las\s+(?P<t>\d{1,2}:\d{2}(?::\d{2})?)", re.I)
+    AMOUNT = re.compile(r"monto\s+de\s+(?P<v>[^\n;]{1,40})", re.I)
+    NOTE = re.compile(r"por\s+concepto\s+de\s*:?\s*(?P<v>[^\n]*\S[^\n]*)", re.I)
+    REF = re.compile(r"n[uú]mero\s+de\s+referencia\s+es\s*:?\s*(?P<v>\d{6,40})", re.I)
+    NO_NOTE = {"sin descripcion", "sin descripción", "-", ""}
+
+    def matches(self, msg: EmailMessage) -> bool:
+        return bool(self.MARKER.search(msg.body)) and "transferencia" in _fold(msg.subject + msg.body)
+
+    def parse(self, msg: EmailMessage, home_currency: str) -> ParsedTransaction:
+        text = msg.body
+        payee = self.PAYEE.search(text)
+        if not payee:
+            raise ParseError("transfer: no payee (\"Estimado(a) ...\")")
+        amount = self.AMOUNT.search(text)
+        found = _first_amount(amount.group("v"), home_currency) if amount else None
+        if not found:
+            raise ParseError("transfer: no amount (\"por un monto de ...\")")
+        when = self.WHEN.search(text)
+        occurred_at = None
+        if when:
+            t = when.group("t") if when.group("t").count(":") == 2 else when.group("t") + ":00"
+            try:
+                occurred_at = datetime.strptime(f"{when.group('d')} {t}", "%d-%m-%Y %H:%M:%S")
+            except ValueError:
+                occurred_at = None
+        occurred_at = occurred_at or msg.received_at
+        if occurred_at is None:
+            raise ParseError("transfer: no date and no email date")
+        payer = self.PAYER.search(text)
+        note = self.NOTE.search(text)
+        note_text = re.sub(r"\s+", " ", note.group("v")).strip(" .") if note else ""
+        ref = self.REF.search(text)
+        return ParsedTransaction(
+            amount=found[0], currency=found[1], merchant=_clean_merchant(payee.group("v")), occurred_at=occurred_at,
+            reference=ref.group("v")[:64] if ref else None, source=SINPE,
+            payer=_clean_merchant(re.sub(r"\s+", " ", payer.group("v"))) if payer else None,
+            note=None if _fold(note_text) in self.NO_NOTE else note_text[:200],
+        )
+
+
+PARSERS: list[BaseParser] = [SinpeTransferParser(), SpanishAlertParser(), GenericAlertParser()]
 
 
 def parse_email(msg: EmailMessage, home_currency: str) -> tuple[ParsedTransaction, str]:
@@ -351,3 +416,31 @@ def parse_email(msg: EmailMessage, home_currency: str) -> tuple[ParsedTransactio
         except ParseError as exc:
             errors.append(f"{parser.name}: {exc}")
     raise ParseError("; ".join(errors) or "no parser matched")
+
+
+# ---- OTP requests -----------------------------------------------------------------------------------
+# What a one-time-code email says the code is for (see pipeline.record_otp). Best effort: none of it is
+# required, the alarm stands on the email alone.
+_OTP_CARD_RE = re.compile(r"(?:terminad[ao]\s+en|ending\s+(?:in|with)|[*xX•·]{2,})\s*(\d{4})\b", re.I)
+_OTP_MERCHANT_RE = re.compile(
+    r"\b(?:compra|transacci[oó]n|pago|purchase|transaction|payment)\s+(?:en|at|with|a)\s+"
+    r"(?P<m>[^\n,;]{2,80}?)\s+(?:por|de|con|for|of|on|using)\b", re.I)
+
+
+# BAC (and similar): "Comercio:" / "Monto:" on their own line, the value on the next non-empty line
+# (or "Comercio: X" on one line, when the HTML puts both in one cell)
+_OTP_LABELLED_RE = re.compile(r"^[ \t]*(?:comercio|merchant)[ \t]*(?::[ \t]*(?=\S)|:?[ \t]*\n(?:[ \t]*\n)*[ \t]*)"
+                              r"(?P<m>[^\n]{1,80}?)[ \t]*$", re.I | re.M)
+
+
+def otp_details(text: str, subject: str, home_currency: str) -> dict:
+    """{"merchant", "amount", "currency", "card_last4"} as far as the email says them (else None)."""
+    amount = _first_amount(text, home_currency)
+    card = _OTP_CARD_RE.search(text)
+    m = _OTP_LABELLED_RE.search(text) or _OTP_MERCHANT_RE.search(text) or _OTP_MERCHANT_RE.search(subject)
+    return {
+        "merchant": _clean_merchant(m.group("m")) if m else (find_merchant(text, subject) or None),
+        "amount": amount[0] if amount else None,
+        "currency": amount[1] if amount else None,
+        "card_last4": card.group(1) if card else find_card(text),
+    }

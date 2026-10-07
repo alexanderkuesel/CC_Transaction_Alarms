@@ -251,13 +251,13 @@ define alarm handling, so the alarm behaviour here follows ISA-18.2.)
 |---|---|
 | Process event | A card transaction parsed from a bank alert email |
 | Alarm | A rule matching a transaction (see **Alarm rules**) |
-| Alarm priority | **1 High** (act now), **2 Medium** (check today), **3 Low** (review when convenient); shown by colour, shape *and* number (red square, amber triangle, slate diamond) |
+| Alarm priority | **0 Critical** (fraud in progress, e.g. an OTP request you didn't make), **1 High** (act now), **2 Medium** (check today), **3 Low** (review when convenient); shown by colour, shape *and* number (purple octagon, red square, amber triangle, slate diamond) |
 | Unacknowledged alarm | Flashes on the **Alarms** page and counts on the *Alarms* menu item and the overview |
 | Acknowledge | **Ack · Legit** / **Ack · Fraud**: your review. The disposition is kept, and doubles as a training label for the anomaly model |
 | Latched alarm | Transactions are discrete events, so there is no "return to normal": an alarm stays active until you acknowledge it |
 | Alarm summary / journal | **Alarms** page (`/alarms`): *Unacknowledged* (default), *All alarms*, and *Journal* (every transaction) |
 | Rationalization | Each rule carries a rationale (why it exists) and a priority. Keep High rare so it keeps its meaning |
-| Alarm system KPIs | Alarm rate per day, and priority mix vs. the ISA-18.2 guideline of roughly 5% High / 15% Medium / 80% Low |
+| Alarm system KPIs | Alarm rate per day, and priority mix vs. the ISA-18.2 guideline of roughly 5% High / 15% Medium / 80% Low (Critical: about 1% or less) |
 
 Built-in alarms:
 
@@ -266,6 +266,30 @@ Built-in alarms:
 * **Charge after a card test** (High): a real charge on the same card within 48 hours of a test-sized one.
 * **Large or foreign purchase** (Medium): over 100 in your home currency, made abroad, or in a currency
   you don't normally use.
+* **OTP request** (Critical, when configured): see below.
+
+### OTP requests
+
+When someone tries to buy online with your card, the bank usually emails a one-time code (OTP) to confirm
+the purchase. A code you didn't ask for is about the strongest fraud signal there is: the card details are in
+someone else's hands *right now*, before anything has been charged. Tell the app what those emails look like
+in `.env`:
+
+```bash
+# subject keywords and/or sender; both must match when both are set (comma separated, case-insensitive)
+FRAUDALERT_OTP_SUBJECT_FILTER=
+FRAUDALERT_OTP_SENDER_FILTER=notificacionesotp_cri@baccredomatic.com   # BAC Costa Rica
+```
+
+For another bank, copy the sender or subject wording from one of its real OTP emails. Senders listed here are fetched even if they're not in
+`FRAUDALERT_SENDER_FILTER`, and OTP subjects pass `FRAUDALERT_SUBJECT_FILTER`. Then restart (`docker compose up -d`).
+
+Every matching email becomes a **priority 0 (Critical)** alarm with its own panel at the top of the **Alarms** page
+(**Ack · Mine** / **Ack · Not me**). It is also counted in the alarm banner, sent to the webhook, and listed in the daily
+report. It is not a transaction, so it never counts as spending; if the purchase goes through, its own alert
+email follows. The code itself is never forwarded. Run **Emails → Re-parse all emails** to pick up OTP emails
+already in the database. Requests more than 2 days old when first seen (a backfill, or OTP emails already stored
+when you turn this on) are recorded as acknowledged, so your own past online purchases don't flood the list.
 
 Existing installs receive new built-in alarms automatically on upgrade (once; if you delete one, it stays deleted).
 
@@ -275,7 +299,8 @@ Existing installs receive new built-in alarms automatically on upgrade (once; if
 Rules are stored in the database, so you can add, disable or delete them from the **Alarm rules** page or the
 API while the pipeline is running. Every change is applied to your whole history straight away.
 
-A rule is a list of conditions joined by **ALL** (AND) or **ANY** (OR), plus a priority. For example:
+A rule is a list of conditions joined by **ALL** (AND) or **ANY** (OR), plus a priority (`severity`: `critical`,
+`high`, `medium` or `low`). For example:
 
 > **Large or foreign purchase** (Medium): `amount > 100 OR is_foreign = true`
 > **Card test** (High): `is_test_amount = true`
@@ -287,6 +312,7 @@ A rule is a list of conditions joined by **ALL** (AND) or **ANY** (OR), plus a p
 | `currency`      | text   | ISO code, e.g. `EUR`                                       |
 | `merchant`      | text   | case-insensitive                                           |
 | `card_last4`    | text   |                                                            |
+| `channel`       | text   | `card` (a card alert) or `sinpe` (a SINPE transfer you sent) |
 | `is_foreign`    | bool   | bought outside `FRAUDALERT_HOME_COUNTRY` (when the email names a country, or says "foreign transaction"), **or** in a currency that isn't one of your normal currencies |
 | `unusual_currency` | bool | currency isn't one of your normal currencies (Settings page / `FRAUDALERT_NORMAL_CURRENCIES`) |
 | `is_test_amount` | bool  | amount (home currency) ≤ `FRAUDALERT_TEST_AMOUNT_MAX` (default 1.0), e.g. a `$0.00` authorisation |
@@ -389,7 +415,8 @@ labels and comments are kept.
 Set `FRAUDALERT_NOTIFY_WEBHOOK_URL` to get a POST for every new alarm. The message leads with the
 priority (`[HIGH] Transaction alarm: ...`). The payload has `text` (Slack/Mattermost), `content` (Discord),
 `priority`, and structured `transaction` fields. Transactions older
-than 2 days are not sent, so a historical backfill won't flood you.
+than 2 days are not sent, so a historical backfill won't flood you. OTP requests are sent as
+`[CRITICAL] OTP request: ...` with an `otp_request` object in place of `transaction`.
 
 ## Anomaly detection
 
@@ -446,6 +473,32 @@ FRAUDALERT_NORMAL_CURRENCIES=CRC,USD    # anything else counts as foreign (also 
 FRAUDALERT_HOME_COUNTRY=Costa Rica
 FRAUDALERT_TIMEZONE=America/Costa_Rica
 ```
+
+### SINPE transfers (Costa Rica)
+
+BAC's *Notificación de Transferencia Local* emails (from `alerta@baccredomatic.com`; add it to
+`FRAUDALERT_SENDER_FILTER` if your alerts come from another address) are read by `SinpeTransferParser`.
+Each transfer becomes an expense:
+
+* **payee**: the person after "Estimado(a)", stored as the merchant, so categories are learned per person;
+* **date and time** from "se realizó el día 07-10-2026 a las 12:22:51";
+* **amount** from "por un monto de 60.000,00 CRC" (Costa Rican format: 60,000 colones);
+* the **reference number**, and the description ("por concepto de") as the row's note unless it's
+  "Sin Descripcion".
+
+Transfers show as **SINPE** in the Expenses table (filterable source), the alarm list, the network map and the daily
+report. Alarm rules apply to them like card purchases. The rule field `channel` is `sinpe` or `card`, so you can
+for example exclude transfers from "Large or foreign purchase" by adding `channel = card` to it. Card-test
+detection never applies to transfers.
+
+The same email is sent when someone pays *you*. Set your name so those aren't counted as spending:
+
+```bash
+FRAUDALERT_ACCOUNT_HOLDER=MARIA LOPEZ    # matched by words, accents and case ignored
+```
+
+Transfers to that name are listed under **Emails → Ignored** (money in, or between your own accounts). After
+setting it, **Emails → Re-parse all emails** applies it to transfers already stored.
 
 Emails from your bank that couldn't be parsed are listed on the **Emails** page with the reason. If
 your bank uses an unusual format, add a `BaseParser` subclass to `fraudalert/ingest/parsers.py`

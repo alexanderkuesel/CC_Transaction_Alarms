@@ -7,14 +7,15 @@
   // ISA-18.2 alarm states. Colour is never the only cue: each state also has a glyph and a label.
   const STATES = {
     fraud: { glyph: "✕", label: "Fraud (acknowledged)" },
+    p0: { glyph: "0", label: "Unacknowledged · Critical" },
     p1: { glyph: "1", label: "Unacknowledged · High" },
     p2: { glyph: "2", label: "Unacknowledged · Medium" },
     p3: { glyph: "3", label: "Unacknowledged · Low" },
     legit: { glyph: "✓", label: "Acknowledged legit" },
     normal: { glyph: "", label: "Normal" },
   };
-  const STATE_RANK = { fraud: 0, p1: 1, p2: 2, p3: 3, legit: 4, normal: 5 };
-  const UNACK = new Set(["p1", "p2", "p3"]);
+  const STATE_RANK = { fraud: 0, p0: 0.5, p1: 1, p2: 2, p3: 3, legit: 4, normal: 5 };
+  const UNACK = new Set(["p0", "p1", "p2", "p3"]);
 
   const svg = document.getElementById("net-svg");
   const canvas = document.getElementById("net-canvas");

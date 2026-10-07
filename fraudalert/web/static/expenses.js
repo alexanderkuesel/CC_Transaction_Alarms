@@ -6,7 +6,7 @@
   const form = $("exp-filters");
   const state = { sort: "when", dir: "desc", offset: 0, limit: 100, categories: [] };
   const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const SOURCE = { card: "Card", fixed: "Fixed" };
+  const SOURCE = { card: "Card", sinpe: "SINPE", fixed: "Fixed" };
   const STATE = { alarm: "Alarm", fraud: "Fraud", reviewed: "Reviewed", ok: "" };
 
   function flash(text, error = false) {
@@ -51,7 +51,8 @@
     $("exp-table").style.opacity = 1;
     document.querySelectorAll('[data-bind="currency"]').forEach(e => (e.textContent = d.currency));
     const parts = [`${d.count.toLocaleString()} expense${d.count === 1 ? "" : "s"}`, `${money(d.total)} ${d.currency}`];
-    if (d.by_source.fixed && d.by_source.card) parts.push(`cards ${money(d.by_source.card, 0)} · fixed ${money(d.by_source.fixed, 0)}`);
+    const split = Object.entries({ cards: d.by_source.card, SINPE: d.by_source.sinpe, fixed: d.by_source.fixed }).filter(([, v]) => v);
+    if (split.length > 1) parts.push(split.map(([k, v]) => `${k} ${money(v, 0)}`).join(" · "));
     if (d.fraud_excluded) parts.push(`${d.fraud_excluded} marked as fraud not counted`);
     $("exp-total").textContent = parts.join(" · ");
     render(d);

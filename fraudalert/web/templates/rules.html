@@ -4,10 +4,11 @@
 <div class="page-head"><div><h1>Alarm rules</h1></div></div>
 <p class="muted" style="margin-top:0">Each rule is an alarm definition. Following ISA-18.2 rationalization, every alarm should
   say why it exists (the rationale) and carry a priority that matches how quickly you need to act:
+  <span class="pri pri-sm pri-0">0</span><b>Critical</b>, fraud in progress: act immediately (e.g. an OTP request you didn't make) ·
   <span class="pri pri-sm pri-1">1</span><b>High</b>, act now (e.g. a card test) ·
   <span class="pri pri-sm pri-2">2</span><b>Medium</b>, check today ·
   <span class="pri pri-sm pri-3">3</span><b>Low</b>, review when convenient.
-  Keep High rare (about 5% of alarms) so it keeps its meaning.</p>
+  Keep High rare (about 5% of alarms) and Critical rarer still, so they keep their meaning.</p>
 <div class="table-wrap" style="margin-bottom:1.25rem">
 <table>
   <thead><tr><th>Priority</th><th>Alarm · rationale</th><th>Logic</th><th>Hits</th><th>Status</th><th></th></tr></thead>
@@ -59,7 +60,7 @@
   </div>
   <p><button type="button" onclick="addCond()">+ condition</button> <button class="primary">Save &amp; apply to history</button></p>
   <p class="muted" style="margin-bottom:0">
-    Fields: <code>amount</code>, <code>currency</code> (e.g. EUR), <code>merchant</code>, <code>card_last4</code>,
+    Fields: <code>amount</code>, <code>currency</code> (e.g. EUR), <code>merchant</code>, <code>card_last4</code>, <code>channel</code> (card or sinpe),
     <code>is_foreign</code> (true/false), <code>hour</code> (0–23, local), <code>weekday</code> (0=Mon), <code>is_test_amount</code> / <code>follows_test</code> (card-test detection),
     <code>unusual_currency</code>, <code>amount_original</code>,
     <code>anomaly_score</code> (0–1, from the anomaly model).

@@ -12,16 +12,22 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from fraudalert.models import Alert, Transaction
+from fraudalert.priorities import NAME, RANK, rank
 
 VIEWS = {"unack": "Unacknowledged", "alarms": "All alarms", "journal": "Journal"}
-PRIORITY_RANK = {"high": 1, "medium": 2, "low": 3}
-PRIORITIES = {"1": "High", "2": "Medium", "3": "Low", "none": "No alarm"}
+PRIORITY_RANK = RANK
+PRIORITIES = {**{str(r): n for r, n in NAME.items()}, "none": "No alarm"}
 STATES = {"unack": "Unacknowledged", "fraud": "Fraud", "legit": "Legit", "none": "No alarm"}
+
+
+def _rank_or_last(t: Transaction) -> int:
+    p = txn_priority(t)
+    return 9 if p is None else p
 
 
 def txn_priority(t: Transaction) -> int | None:
     """Highest (numerically lowest) priority among a transaction's alarms."""
-    ranks = [PRIORITY_RANK.get(a.severity, 3) for a in t.alerts]
+    ranks = [rank(a.severity) for a in t.alerts]
     return min(ranks) if ranks else None
 
 
@@ -57,7 +63,7 @@ def _date(value: str, name: str, errors: list[str]) -> date | None:
 class Filters:
     view: str = "unack"
     q: str = ""  # merchant / currency contains
-    pri: set[str] = field(default_factory=set)  # {"1", "2", "3", "none"}
+    pri: set[str] = field(default_factory=set)  # {"0", "1", "2", "3", "none"}
     state: set[str] = field(default_factory=set)  # {"unack", "fraud", "legit", "none"}
     date_from: date | None = None  # local dates, inclusive
     date_to: date | None = None
@@ -175,7 +181,7 @@ class Filters:
         def keep(t: Transaction) -> bool:
             if self.pri:
                 p = txn_priority(t)
-                if (str(p) if p else "none") not in self.pri:
+                if (str(p) if p is not None else "none") not in self.pri:
                     return False
             if self.state and txn_state(t) not in self.state:
                 return False
@@ -193,7 +199,7 @@ class Filters:
         if self.view == "journal":
             rows.sort(key=lambda t: t.occurred_at, reverse=True)
         else:  # alarm lists: unacknowledged first, then priority, then newest
-            rows.sort(key=lambda t: (t.label_fraud is not None, txn_priority(t) or 9, -t.occurred_at.timestamp()))
+            rows.sort(key=lambda t: (t.label_fraud is not None, _rank_or_last(t), -t.occurred_at.timestamp()))
         return rows
 
 

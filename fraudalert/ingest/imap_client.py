@@ -30,6 +30,11 @@ def build_search(since: date, senders: list[str], exclude: list[str] = ()) -> st
     return f"{criteria} {expr}"
 
 
+def _header(header_text: str, name: str) -> str:
+    m = re.search(rf"^{name}:\s*(.*)$", header_text, re.I | re.M)
+    return str(make_header(decode_header(m.group(1)))) if m else ""
+
+
 def fetch_messages(
     settings: Settings,
     since: date,
@@ -50,7 +55,8 @@ def fetch_messages(
         if status != "OK":
             raise RuntimeError(f"cannot open folder {settings.imap_folder!r}")
 
-        query = build_search(since, settings.senders, settings.statement_senders)
+        senders = settings.senders + [s for s in settings.otp_senders if s not in settings.senders]
+        query = build_search(since, senders if settings.senders else [], settings.statement_senders)
         status, data = conn.uid("SEARCH", None, query)
         if status != "OK":
             raise RuntimeError(f"IMAP search failed: {data!r}")
@@ -59,7 +65,7 @@ def fetch_messages(
         subjects = [s.lower() for s in settings.subjects]
 
         for uid in uids:
-            status, hdr = conn.uid("FETCH", uid, "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID SUBJECT)])")
+            status, hdr = conn.uid("FETCH", uid, "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID SUBJECT FROM)])")
             if status != "OK" or not hdr or not isinstance(hdr[0], tuple):
                 continue
             header_text = hdr[0][1].decode("utf-8", "replace")
@@ -67,9 +73,9 @@ def fetch_messages(
             if mid and already_seen(mid.group(1).strip()):
                 continue
             if subjects:
-                subj = re.search(r"^Subject:\s*(.*)$", header_text, re.I | re.M)
-                subject = str(make_header(decode_header(subj.group(1)))) if subj else ""
-                if not any(s in subject.lower() for s in subjects):
+                subject, sender = _header(header_text, "Subject"), _header(header_text, "From")
+                # OTP requests (FRAUDALERT_OTP_*) pass even when their subject isn't an alert subject
+                if not any(s in subject.lower() for s in subjects) and not settings.is_otp(sender, subject):
                     continue
             status, body = conn.uid("FETCH", uid, "(BODY.PEEK[])")
             if status != "OK" or not body or not isinstance(body[0], tuple):
