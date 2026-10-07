@@ -312,6 +312,7 @@ A rule is a list of conditions joined by **ALL** (AND) or **ANY** (OR), plus a p
 | `currency`      | text   | ISO code, e.g. `EUR`                                       |
 | `merchant`      | text   | case-insensitive                                           |
 | `card_last4`    | text   |                                                            |
+| `channel`       | text   | `card` (a card alert) or `sinpe` (a SINPE transfer you sent) |
 | `is_foreign`    | bool   | bought outside `FRAUDALERT_HOME_COUNTRY` (when the email names a country, or says "foreign transaction"), **or** in a currency that isn't one of your normal currencies |
 | `unusual_currency` | bool | currency isn't one of your normal currencies (Settings page / `FRAUDALERT_NORMAL_CURRENCIES`) |
 | `is_test_amount` | bool  | amount (home currency) ≤ `FRAUDALERT_TEST_AMOUNT_MAX` (default 1.0), e.g. a `$0.00` authorisation |
@@ -472,6 +473,32 @@ FRAUDALERT_NORMAL_CURRENCIES=CRC,USD    # anything else counts as foreign (also 
 FRAUDALERT_HOME_COUNTRY=Costa Rica
 FRAUDALERT_TIMEZONE=America/Costa_Rica
 ```
+
+### SINPE transfers (Costa Rica)
+
+BAC's *Notificación de Transferencia Local* emails (from `alerta@baccredomatic.com`; add it to
+`FRAUDALERT_SENDER_FILTER` if your alerts come from another address) are read by `SinpeTransferParser`.
+Each transfer becomes an expense:
+
+* **payee**: the person after "Estimado(a)", stored as the merchant, so categories are learned per person;
+* **date and time** from "se realizó el día 07-10-2026 a las 12:22:51";
+* **amount** from "por un monto de 60.000,00 CRC" (Costa Rican format: 60,000 colones);
+* the **reference number**, and the description ("por concepto de") as the row's note unless it's
+  "Sin Descripcion".
+
+Transfers show as **SINPE** in the Expenses table (filterable source), the alarm list, the network map and the daily
+report. Alarm rules apply to them like card purchases. The rule field `channel` is `sinpe` or `card`, so you can
+for example exclude transfers from "Large or foreign purchase" by adding `channel = card` to it. Card-test
+detection never applies to transfers.
+
+The same email is sent when someone pays *you*. Set your name so those aren't counted as spending:
+
+```bash
+FRAUDALERT_ACCOUNT_HOLDER=MARIA LOPEZ    # matched by words, accents and case ignored
+```
+
+Transfers to that name are listed under **Emails → Ignored** (money in, or between your own accounts). After
+setting it, **Emails → Re-parse all emails** applies it to transfers already stored.
 
 Emails from your bank that couldn't be parsed are listed on the **Emails** page with the reason. If
 your bank uses an unusual format, add a `BaseParser` subclass to `fraudalert/ingest/parsers.py`
