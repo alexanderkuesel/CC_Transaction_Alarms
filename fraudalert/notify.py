@@ -3,6 +3,7 @@ import logging
 import httpx
 
 from fraudalert.config import Settings
+from fraudalert.ingest.parsers import SINPE
 from fraudalert.models import Transaction
 
 log = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ def notify(settings: Settings, txn: Transaction, reasons: list[str]) -> bool:
     text = (
         f"[{priority}] Transaction alarm: {txn.amount} {txn.currency} at {txn.merchant or 'unknown merchant'}"
         f" on {txn.occurred_at:%Y-%m-%d %H:%M}"
-        + (f" (card …{txn.card_last4})" if txn.card_last4 else "")
+        + (" (SINPE transfer)" if txn.source == SINPE else f" (card …{txn.card_last4})" if txn.card_last4 else "")
         + "\n" + "\n".join(f"• {r}" for r in reasons)
     )
     payload = {

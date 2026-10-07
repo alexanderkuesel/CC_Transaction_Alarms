@@ -20,6 +20,7 @@ FIELDS: dict[str, type] = {
     "currency": str,
     "merchant": str,
     "card_last4": str,
+    "channel": str,  # "card" (a card alert) or "sinpe" (a SINPE bank transfer you sent)
     "is_foreign": bool,  # bought outside your home country, or in a currency you don't normally use
     "unusual_currency": bool,  # currency not in your normal currencies (Settings page)
     "is_test_amount": bool,  # at or below FRAUDALERT_TEST_AMOUNT_MAX (e.g. a $0.00 authorisation)

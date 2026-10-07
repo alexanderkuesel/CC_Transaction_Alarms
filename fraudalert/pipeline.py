@@ -18,7 +18,7 @@ from fraudalert import prefs
 from fraudalert.fx import Converter, parse_rates
 from fraudalert.db import SYNC_LOCK_KEY, session_scope, try_advisory_lock
 from fraudalert.ingest.message import EmailMessage, parse_rfc822
-from fraudalert.ingest.parsers import ParsedTransaction, ParseError, _fold, parse_email
+from fraudalert.ingest.parsers import SINPE, ParsedTransaction, ParseError, _fold, parse_email
 from fraudalert.models import Alert, RawEmail, Rule, SyncState, Transaction
 from fraudalert.notify import notify
 from fraudalert.rules.engine import RuleSpec, describe, evaluate
@@ -100,7 +100,8 @@ class Env:
         return bool(txn.is_foreign) or self.unusual_currency(txn)
 
     def is_test_amount(self, txn: Transaction) -> bool:
-        return self.fx.to_home(float(txn.amount), txn.currency) <= self.test_amount_max
+        """Card tests are a card thing: a small SINPE transfer to a friend is not one."""
+        return txn.source != SINPE and self.fx.to_home(float(txn.amount), txn.currency) <= self.test_amount_max
 
     def localize(self, dt: datetime) -> datetime:
         """Dates written in an email without a timezone are the user's local time."""
@@ -141,6 +142,7 @@ def transaction_context(txn: Transaction, env: Env, follows_test: bool = False) 
         "currency": txn.currency,
         "merchant": txn.merchant or "",
         "card_last4": txn.card_last4,
+        "channel": "sinpe" if txn.source == SINPE else "card",
         "is_foreign": env.is_foreign(txn),
         "unusual_currency": env.unusual_currency(txn),
         "is_test_amount": env.is_test_amount(txn),
@@ -228,6 +230,13 @@ def _parse_into_transaction(session, raw, settings, detector, rules, result) -> 
             session.flush()
         result.failed += 1
         return None
+    if parsed.source == SINPE and settings.is_account_holder(parsed.merchant):
+        # A transfer to you (or between your own accounts): money in, not spending.
+        raw.parse_status, raw.parse_error, raw.parser_name = "ignored", TRANSFER_IN, parser_name
+        if raw.transaction is not None:
+            session.delete(raw.transaction)
+            session.flush()
+        return None
     raw.parse_status, raw.parse_error, raw.parser_name = "parsed", None, parser_name
     result.parsed += 1
 
@@ -239,6 +248,9 @@ def _parse_into_transaction(session, raw, settings, detector, rules, result) -> 
     txn.card_last4 = parsed.card_last4
     txn.auth_code = parsed.auth_code
     txn.reference = parsed.reference
+    txn.source = parsed.source
+    if parsed.note and not txn.comment:  # a transfer's description, unless you've written your own note
+        txn.comment = parsed.note
     txn.is_foreign = env.foreign_location(parsed)
     is_new = txn.id is None
     session.add(txn)
@@ -252,6 +264,9 @@ def _parse_into_transaction(session, raw, settings, detector, rules, result) -> 
                 for a in new_alerts:
                     a.notified = True
     return txn
+
+
+TRANSFER_IN = "Transfer to you (FRAUDALERT_ACCOUNT_HOLDER): money in, not spending"
 
 
 def _get_state(session: Session, key: str) -> str | None:

@@ -1,3 +1,4 @@
+import re
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -34,6 +35,11 @@ class Settings(BaseSettings):
     # Currencies you normally pay in, e.g. "CRC,USD"; any other currency counts as foreign.
     # Defaults to the home currency. Editable on the web UI's Settings page (which takes precedence).
     normal_currencies: str = ""
+    # Your name as your bank writes it on transfer notifications (comma-separate spellings). A SINPE
+    # transfer *to* this name is money coming in, or between your own accounts, so it isn't spending.
+    # Matching is by words, so "ALEXANDRA PEREZ" matches "ALEXANDRA MARIA PEREZ SOTO". Empty = every
+    # transfer notification counts as money you sent.
+    account_holder: str = ""
     home_country: str = ""  # e.g. "Costa Rica"; when the email names a country, others count as foreign
     fx_rates: str = ""  # overrides for fraudalert/fx.py, e.g. "CRC=0.00195" (1 CRC in home currency)
     # Card-test detection: an authorisation at or below this amount (home currency) is a likely card
@@ -51,6 +57,12 @@ class Settings(BaseSettings):
     @staticmethod
     def _split(value: str) -> list[str]:
         return [v.strip() for v in value.split(",") if v.strip()]
+
+    def is_account_holder(self, name: str) -> bool:
+        from fraudalert.ingest.parsers import _fold
+
+        words = set(re.findall(r"\w+", _fold(name or "")))
+        return any(set(re.findall(r"\w+", _fold(h))) <= words for h in self._split(self.account_holder))
 
     @property
     def auth_enabled(self) -> bool:

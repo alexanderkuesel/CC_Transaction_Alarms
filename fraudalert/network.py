@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from fraudalert.anomaly.features import merchant_key
+from fraudalert.ingest.parsers import SINPE
 from fraudalert.models import Transaction
 
 NEW_MERCHANT_DAYS = 14  # first-ever purchase at a merchant within this many days = "new"
@@ -74,7 +75,7 @@ def build_network(session: Session, env, days: int | None, now: datetime | None 
 
     for t in session.scalars(q):
         key = merchant_key(t.merchant or "") or "(unknown merchant)"
-        card = t.card_last4 or "????"
+        card = SINPE if t.source == SINPE else (t.card_last4 or "????")
         amount = env.fx.to_home(float(t.amount), t.currency)
         ts = _utc(t.occurred_at)
         m = merchants[key]
@@ -100,7 +101,7 @@ def build_network(session: Session, env, days: int | None, now: datetime | None 
 
     new_cutoff = now - timedelta(days=NEW_MERCHANT_DAYS)
     nodes = [
-        {"id": f"card:{c}", "kind": "card", "label": f"Card …{c}" if c != "????" else "Unknown card",
+        {"id": f"card:{c}", "kind": "card", "label": "SINPE transfers" if c == SINPE else f"Card …{c}" if c != "????" else "Unknown card",
          "count": v["count"], "total": round(v["total"], 2)}
         for c, v in sorted(card_totals.items())
     ]

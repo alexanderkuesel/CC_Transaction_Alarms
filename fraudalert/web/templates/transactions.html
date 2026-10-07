@@ -141,7 +141,7 @@
         {% else %}<span class="muted">—</span>{% endif %}
       </td>
       <td class="nowrap mono">{{ t.occurred_at | local }}</td>
-      <td>{{ t.merchant or '—' }}{% if is_foreign(t) %} <span class="tag">foreign</span>{% endif %}
+      <td>{{ t.merchant or '—' }}{% if t.source == 'sinpe' %} <span class="tag" title="SINPE bank transfer you sent">SINPE</span>{% endif %}{% if is_foreign(t) %} <span class="tag">foreign</span>{% endif %}
         {% if t.auth_code or t.reference %}<div class="bank-ref" title="Quote these to your bank">
           {% if t.auth_code %}Auth <span class="mono">{{ t.auth_code }}</span>{% endif %}
           {% if t.reference %} · Ref <span class="mono">{{ t.reference }}</span>{% endif %}</div>{% endif %}</td>

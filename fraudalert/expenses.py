@@ -11,10 +11,11 @@ from sqlalchemy.orm import Session
 
 from fraudalert import spending
 from fraudalert.anomaly.features import merchant_key
+from fraudalert.ingest.parsers import SINPE
 from fraudalert.models import Category, ManualExpense, MerchantTag, Transaction
 
 SORTS = ("when", "merchant", "category", "amount")
-SOURCES = ("all", "card", "fixed")
+SOURCES = ("all", "card", "sinpe", "fixed")  # sinpe = bank transfers you sent
 
 
 @dataclass
@@ -47,8 +48,12 @@ def rows(session: Session, env, f: Filter) -> list[dict]:
     hi = datetime.combine(f.end + timedelta(days=1), time.min, tzinfo=env.tz) if f.end else None
     out: list[dict] = []
 
-    if f.source in ("all", "card"):
+    if f.source in ("all", "card", "sinpe"):
         q = select(Transaction)
+        if f.source == "card":
+            q = q.where(Transaction.source != SINPE)
+        elif f.source == "sinpe":
+            q = q.where(Transaction.source == SINPE)
         if lo:
             q = q.where(Transaction.occurred_at >= lo)
         if hi:
@@ -64,7 +69,8 @@ def rows(session: Session, env, f: Filter) -> list[dict]:
                 "id": t.id, "when": occurred.astimezone(env.tz).isoformat(timespec="minutes"), "merchant": t.merchant,
                 "key": key, "category_id": cid, "category": names.get(cid, spending.UNCATEGORIZED),
                 "assigned_by": tag.assigned_by if tag else "auto", "amount": float(t.amount), "currency": t.currency,
-                "home": env.fx.to_home(float(t.amount), t.currency), "card": t.card_last4, "source": "card",
+                "home": env.fx.to_home(float(t.amount), t.currency), "card": t.card_last4,
+                "source": SINPE if t.source == SINPE else "card",
                 "state": _state(t), "comment": t.comment or ""})
 
     if f.source in ("all", "fixed") and not f.card:
@@ -98,7 +104,7 @@ def page(session: Session, env, f: Filter, offset: int = 0, limit: int = 100) ->
     return {
         "currency": env.home_currency, "count": len(all_rows),
         "total": round(sum(r["home"] for r in counted), 2),
-        "by_source": {s: round(sum(r["home"] for r in counted if r["source"] == s), 2) for s in ("card", "fixed")},
+        "by_source": {s: round(sum(r["home"] for r in counted if r["source"] == s), 2) for s in ("card", SINPE, "fixed")},
         "fraud_excluded": sum(1 for r in all_rows if r["state"] == "fraud"),
         "rows": all_rows[offset: offset + limit], "offset": offset, "limit": limit,
     }

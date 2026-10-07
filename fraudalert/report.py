@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session, selectinload
 from fraudalert.anomaly.explain import summary
 from fraudalert.config import Settings, get_settings
 from fraudalert.db import session_scope
+from fraudalert.ingest.parsers import SINPE
 from fraudalert.models import Alert, SyncState, Transaction
 
 log = logging.getLogger(__name__)
@@ -162,6 +163,11 @@ def build_report(session: Session, settings: Settings, since: datetime, until: d
     def money(t):
         return f"{t.amount:,.2f} {t.currency}"
 
+    def via(t, short=False):
+        if t.source == SINPE:
+            return "SINPE transfer" if not short else "SINPE"
+        return ("" if short else "card ") + f"…{t.card_last4 or '????'}"
+
     # ---- plain text ----
     lines = [subject, "", f"Covering {since.astimezone(tz):%Y-%m-%d %H:%M} to {until.astimezone(tz):%Y-%m-%d %H:%M} "
              f"({settings.timezone}).",
@@ -171,7 +177,7 @@ def build_report(session: Session, settings: Settings, since: datetime, until: d
         lines += [f"NEEDS YOUR ATTENTION ({len(unack)} unacknowledged)", call, ""]
         for t in unack[:MAX_ROWS]:
             lines.append(f"  [{PRIORITY_LABEL[_priority(t) or 3]}] {when(t)}  {money(t)}  {t.merchant}  "
-                         f"card …{t.card_last4 or '????'}  auth {t.auth_code or '-'}  ref {t.reference or '-'}  "
+                         f"{via(t)}  auth {t.auth_code or '-'}  ref {t.reference or '-'}  "
                          f"({_alarm_names(t)})")
             if t.anomaly_reasons:
                 lines.append(f"      why unusual: {summary(t.anomaly_reasons)}")
@@ -180,7 +186,7 @@ def build_report(session: Session, settings: Settings, since: datetime, until: d
         lines += ["No unacknowledged alarms. All clear.", ""]
     if fraud:
         lines += ["MARKED AS FRAUD (last 30 days), for reporting to the bank:"]
-        lines += [f"  {when(t)}  {money(t)}  {t.merchant}  card …{t.card_last4 or '????'}  "
+        lines += [f"  {when(t)}  {money(t)}  {t.merchant}  {via(t)}  "
                   f"auth {t.auth_code or '-'}  ref {t.reference or '-'}" for t in fraud[:MAX_ROWS]]
         lines.append("")
     if period:
@@ -189,7 +195,7 @@ def build_report(session: Session, settings: Settings, since: datetime, until: d
             p = _priority(t)
             return ("FRAUD" if t.label_fraud else "-" if p is None
                     else f"{PRIORITY_LABEL[p]}{' legit' if t.label_fraud is False else ''}")
-        lines += [f"  {when(t)}  {money(t)}  {t.merchant}  card …{t.card_last4 or '????'}  auth {t.auth_code or '-'}"
+        lines += [f"  {when(t)}  {money(t)}  {t.merchant}  {via(t)}  auth {t.auth_code or '-'}"
                   f"  [{state(t)}]" for t in period[:MAX_ROWS]]
         lines.append("")
     if link:
@@ -227,7 +233,7 @@ def build_report(session: Session, settings: Settings, since: datetime, until: d
                 f'<div style="border-left:4px solid {edge};background:#f4f4f5;padding:8px 12px;margin:0 0 8px">'
                 f'<div>{status_html(t)} &nbsp;<b style="font-size:15px">'
                 f'{e(money(t))}</b> · {e(t.merchant or "—")}</div>'
-                f'<div style="color:#5b5e63;font-size:13px">{e(when(t))} · card …{e(t.card_last4 or "????")}</div>'
+                f'<div style="color:#5b5e63;font-size:13px">{e(when(t))} · {e(via(t))}</div>'
                 f'<div style="font-size:13px">Authorization <b style="font-family:monospace;font-size:15px">'
                 f'{e(t.auth_code or "—")}</b>{ref}</div>'
                 + (f'<div style="color:#5b5e63;font-size:12px">{e(_alarm_names(t))}</div>' if t.alerts else "")
@@ -249,7 +255,7 @@ def build_report(session: Session, settings: Settings, since: datetime, until: d
             "<tr>" + (pri_cell(t) if with_priority else "")
             + f'<td {td("white-space:nowrap")}>{e(when(t))}</td>'
             + f'<td {td("white-space:nowrap;text-align:right")}><b>{e(money(t))}</b></td>'
-            + f"<td {td()}>{e(t.merchant or '—')}</td><td {td('white-space:nowrap')}>…{e(t.card_last4 or '????')}</td>"
+            + f"<td {td()}>{e(t.merchant or '—')}</td><td {td('white-space:nowrap')}>{e(via(t, short=True))}</td>"
             + f'<td {td()}><b style="font-family:monospace;font-size:14px">{e(t.auth_code or "—")}</b></td>'
             + (f'<td {td("font-family:monospace")}>{e(t.reference or "—")}</td>' if with_ref else "")
             + (f'<td {td("font-size:12px;color:#5b5e63")}>{e(_alarm_names(t))}</td>' if with_alarm else "")
